@@ -1,36 +1,51 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# HighGrade Writing
 
-## Getting Started
+A writing-practice site for students in grade 5 and up: short lessons, guided
+Brainstorm → Outline → Draft → Revise practice, and an AI writing coach (Claude)
+that gives rubric-based feedback without writing for the student.
 
-First, run the development server:
+## Setup
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+1. **Claude API key** — create one at https://console.anthropic.com.
+2. **Supabase project** — create a free project at https://supabase.com/dashboard, then:
+   - **SQL Editor → New query**: paste `supabase/migrations/0001_init.sql` and click **Run**.
+   - **Authentication → URL Configuration**: set *Site URL* to `http://localhost:3000`
+     (add your production URL later) and add `http://localhost:3000/auth/confirm` to *Redirect URLs*.
+   - **Project Settings → API Keys**: copy the project URL and the **publishable** key.
+     Never put the secret / service-role key in this app.
+3. **Env file**:
+   ```bash
+   cp .env.example .env.local   # fill in all values
+   npm install
+   npm run dev                  # http://localhost:3000
+   ```
+   `NEXT_PUBLIC_*` values are baked in at build time — restart `npm run dev` after changing them.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Data & privacy
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Tables: `profiles`, `works` (one per lesson/daily prompt), `drafts` (each feedback round).
+- Row Level Security: students can only read/write their own rows; they can't edit consent
+  fields or delete drafts (which keeps the daily feedback limit honest).
+- Under-13 sign-ups store a parent email with `parental_consent = 'pending'`. **Before launching
+  to the public, add a verified parental-consent step** (e.g. email the parent a consent link) to
+  meet COPPA.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## How it's organized
 
-## Learn More
+| Path | What it is |
+|---|---|
+| `src/lib/lessons.ts` | Lesson content (teaching points, examples, practice tasks). Add lessons here. |
+| `src/lib/daily-prompts.ts` | Rotating daily writing prompts. |
+| `src/lib/traits.ts` | The 6 Traits rubric used everywhere. |
+| `src/app/api/feedback/route.ts` | Server route that calls Claude for feedback (coach prompt lives here). |
+| `src/lib/feedback.ts` | Feedback schema shared by the API and UI. |
+| `src/components/WritingStudio.tsx` | The 4-step writing workspace. |
+| `src/lib/storage.ts` | Client store: loads the student's work from Supabase, autosaves edits. |
+| `src/lib/supabase/` | Browser and server Supabase clients. `src/proxy.ts` refreshes sessions. |
+| `supabase/migrations/` | Database schema + security policies. |
 
-To learn more about Next.js, take a look at the following resources:
+## Roadmap
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Verified parental consent email for under-13s (COPPA)
+- Teacher/parent dashboard and assignments
+- More lessons for grades 9–12
