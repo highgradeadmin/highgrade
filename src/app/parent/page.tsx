@@ -11,7 +11,9 @@ import { levelProgress, type PieceLike } from "@/lib/proficiency";
 import {
   addChild,
   deleteChild,
+  fetchPlan,
   getPinStatus,
+  openBilling,
   lockParentArea,
   selectChild,
   setParentPin,
@@ -25,6 +27,7 @@ import {
   useParentUnlocked,
   type Child,
   type PinStatus,
+  type PlanInfo,
 } from "@/lib/storage";
 import { createClient } from "@/lib/supabase/client";
 
@@ -226,6 +229,131 @@ function useChildStats(children: Child[]) {
   return stats;
 }
 
+const fmtDate = (iso: string | null | undefined) =>
+  iso ? new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" }) : "";
+
+/** Family plan: start the free trial, or see and manage the subscription in Stripe. */
+function PlanCard() {
+  const [plan, setPlan] = useState<PlanInfo | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchPlan().then((p) => {
+      const result = new URLSearchParams(window.location.search).get("billing");
+      setNotice(
+        result === "success"
+          ? "🎉 You're all set! Your children can get coach feedback now."
+          : result === "cancelled"
+            ? "No problem — nothing was charged."
+            : null,
+      );
+      setPlan(p);
+    });
+  }, []);
+
+  async function go(action: "checkout" | "portal", interval?: "month" | "year") {
+    setBusy(interval ?? action);
+    setError(null);
+    const err = await openBilling(action, interval);
+    if (err) {
+      setError(err);
+      setBusy(null);
+    }
+  }
+
+  if (!plan) return <div className="h-32 animate-pulse rounded-xl bg-slate-100" />;
+  if (!plan.enabled) return null;
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-5">
+      <h2 className="text-lg font-semibold">Family plan</h2>
+      {notice && <p className="mt-2 rounded-lg bg-emerald-50 p-2 text-sm text-emerald-900">{notice}</p>}
+
+      {plan.error ? (
+        <p className="mt-2 text-sm text-red-700">{plan.error} Reload the page to try again.</p>
+      ) : plan.active ? (
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm text-slate-700">
+            {plan.status === "trialing" ? (
+              <p>
+                <b className="text-slate-900">🎁 Free trial</b> — ends {fmtDate(plan.trialEnd)}. Then{" "}
+                {plan.interval === "year" ? "$79 a year" : "$9.99 a month"}.
+              </p>
+            ) : plan.status === "past_due" ? (
+              <p className="text-amber-800">
+                <b>⚠️ Your last payment didn&apos;t go through.</b> Please update your card in Manage plan.
+              </p>
+            ) : (
+              <p>
+                <b className="text-slate-900">✅ Active</b> — {plan.interval === "year" ? "yearly" : "monthly"} plan
+                {plan.periodEnd && !plan.cancelAtPeriodEnd && <>, renews {fmtDate(plan.periodEnd)}</>}.
+              </p>
+            )}
+            {plan.cancelAtPeriodEnd && (
+              <p className="mt-1 text-amber-800">
+                Your plan is cancelled and ends {fmtDate(plan.status === "trialing" ? plan.trialEnd : plan.periodEnd)}.
+              </p>
+            )}
+          </div>
+          <button onClick={() => go("portal")} disabled={busy !== null} className={secondary}>
+            {busy === "portal" ? "Opening…" : "Manage plan"}
+          </button>
+        </div>
+      ) : (
+        <div className="mt-2">
+          <p className="text-sm text-slate-700">
+            {plan.hadSubscription ? (
+              "Restart your plan to turn coach feedback back on."
+            ) : (
+              <>
+                Try everything free for <b>{plan.trialDays ?? 7} days</b>. Coach feedback for all your children.
+                Cancel anytime before the trial ends and you won&apos;t be charged.
+              </>
+            )}
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {(
+              [
+                { interval: "month", price: "$9.99", per: "per month", note: "" },
+                { interval: "year", price: "$79", per: "per year", note: "Save 34%" },
+              ] as const
+            ).map((o) => (
+              <button
+                key={o.interval}
+                onClick={() => go("checkout", o.interval)}
+                disabled={busy !== null}
+                className="flex flex-col items-start rounded-xl border-2 border-indigo-200 p-4 text-left transition hover:border-indigo-500 disabled:opacity-50"
+              >
+                <span className="text-2xl font-bold text-slate-900">
+                  {o.price} <span className="text-sm font-normal text-slate-600">{o.per}</span>
+                </span>
+                {o.note && (
+                  <span className="mt-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+                    {o.note}
+                  </span>
+                )}
+                <span className="mt-2 text-sm font-semibold text-indigo-700">
+                  {busy === o.interval
+                    ? "Opening…"
+                    : plan.hadSubscription
+                      ? "Choose →"
+                      : `Start ${plan.trialDays ?? 7}-day free trial →`}
+                </span>
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-slate-500">
+            Secure payment by Stripe. Lessons and Daily Write prompts stay free; the plan unlocks coach feedback.
+          </p>
+        </div>
+      )}
+      {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
+    </section>
+  );
+}
+
 function ParentDashboard() {
   const router = useRouter();
   const parentName = useParentName();
@@ -260,6 +388,8 @@ function ParentDashboard() {
           </button>
         </div>
       </header>
+
+      <PlanCard />
 
       <section>
         <h2 className="mb-3 text-lg font-semibold">Your children</h2>

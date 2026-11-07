@@ -1,11 +1,12 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
+import { billingEnabled, planStatus } from "@/lib/billing";
 import { FeedbackRequestSchema, FeedbackSchema, MAX_TRIES, type Feedback } from "@/lib/feedback";
 import { createClient } from "@/lib/supabase/server";
 import { TRAITS } from "@/lib/traits";
 
 const client = new Anthropic();
-const DAILY_LIMIT = Number(process.env.FEEDBACK_DAILY_LIMIT ?? 20);
+const DAILY_LIMIT = Number(process.env.FEEDBACK_DAILY_LIMIT ?? 10);
 
 const SYSTEM_PROMPT = `You are a kind, encouraging writing coach for students aged about 10-14 on an educational website.
 
@@ -74,6 +75,26 @@ export async function POST(request: Request) {
   if (childError) return dbError(childError);
   if (!child) {
     return Response.json({ error: "Choose who's writing first." }, { status: 403 });
+  }
+
+  // ── Family plan (Stripe). Admins are exempt so the site can always be tested. ──
+  if (billingEnabled()) {
+    const { data: isAdmin } = await supabase.rpc("is_admin");
+    if (isAdmin !== true) {
+      let active = false;
+      try {
+        active = (await planStatus(supabase, userId)).active;
+      } catch (err) {
+        console.error("Plan check failed", err instanceof Error ? err.message : err);
+        return Response.json({ error: "Couldn't check your family's plan. Please try again in a minute." }, { status: 502 });
+      }
+      if (!active) {
+        return Response.json(
+          { error: "Coach feedback needs a family plan. Ask a parent to start the free trial in the parent area.", code: "no_plan" },
+          { status: 402 },
+        );
+      }
+    }
   }
 
   // ── Daily limit per child (protects the API bill) ──

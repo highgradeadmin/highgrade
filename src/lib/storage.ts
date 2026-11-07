@@ -486,6 +486,50 @@ export function updateChild(id: string, name: string, grade: number, level: stri
   );
 }
 
+// ── Family plan (Stripe) ──
+
+export interface PlanInfo {
+  enabled: boolean;
+  active?: boolean;
+  status?: string | null;
+  interval?: "month" | "year" | null;
+  trialEnd?: string | null;
+  periodEnd?: string | null;
+  cancelAtPeriodEnd?: boolean;
+  hadSubscription?: boolean;
+  trialDays?: number;
+  error?: string;
+}
+
+export async function fetchPlan(): Promise<PlanInfo> {
+  try {
+    const res = await fetch("/api/billing", { cache: "no-store" });
+    const data = (await res.json()) as PlanInfo;
+    return res.ok ? data : { enabled: true, error: data.error ?? "Couldn't check your plan." };
+  } catch {
+    return { enabled: true, error: "Couldn't check your plan." };
+  }
+}
+
+/** Opens Stripe Checkout or the customer portal (needs the unlocked parent area). Returns an error or redirects. */
+export async function openBilling(action: "checkout" | "portal", interval: "month" | "year" = "month") {
+  if (!parentPin) return "The parent area is locked. Enter your PIN again.";
+  try {
+    const res = await fetch(`/api/billing/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin: parentPin, interval }),
+    });
+    const data = (await res.json()) as { url?: string; error?: string };
+    if (res.status === 403) lockParentArea();
+    if (!res.ok || !data.url) return data.error ?? "Something went wrong.";
+    window.location.assign(data.url);
+    return null;
+  } catch {
+    return "Couldn't reach the server. Check your connection.";
+  }
+}
+
 /** Parent turns speech-to-text on or off for a child (needs the parent PIN). */
 export function setChildVoiceTyping(id: string, enabled: boolean) {
   return withPin<boolean>(async (pin) =>
