@@ -76,6 +76,8 @@ export const FeedbackRequestSchema = z.object({
   genre: z.enum(["paragraph", "narrative", "persuasive", "informative"]),
   focus: z.array(z.string()).max(6).default([]),
   checklist: z.array(z.string().max(300)).max(10).default([]),
+  /** Some of the draft was spoken with speech-to-text. */
+  dictated: z.boolean().default(false),
 });
 
 export type FeedbackRequest = z.infer<typeof FeedbackRequestSchema>;

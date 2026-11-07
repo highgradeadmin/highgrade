@@ -21,6 +21,8 @@ export interface Child {
   /** Avatar key (see lib/avatars.ts) and colour key, chosen by the child. */
   avatar: string;
   color: string;
+  /** Parent has allowed speech-to-text (🎤) for this child. */
+  voiceTyping: boolean;
 }
 
 /** The active child's profile (what the writing pages need). */
@@ -146,6 +148,7 @@ type ChildRow = {
   level: string;
   avatar?: string;
   color?: string;
+  voice_typing?: boolean;
 };
 
 function toChild(r: ChildRow, i: number): Child {
@@ -157,6 +160,7 @@ function toChild(r: ChildRow, i: number): Child {
     level: r.level,
     avatar: r.avatar ?? "owl",
     color: r.color ?? DEFAULT_COLORS[i % DEFAULT_COLORS.length],
+    voiceTyping: r.voice_typing ?? false,
   };
 }
 
@@ -296,7 +300,7 @@ export function useActiveChild(): Child | null {
 }
 
 /** The active child's profile, or null when no child is selected. */
-export function useProfile(): Profile | null {
+export function useProfile(): Child | null {
   return useActiveChild();
 }
 
@@ -306,6 +310,11 @@ export function useWorksLoading() {
 
 export function useAllWorkMap() {
   return useStore((s) => s.works);
+}
+
+/** Latest saved copy of a piece (outside React; used when several updates arrive quickly). */
+export function getWork(id: string): Work | undefined {
+  return state.works[id];
 }
 
 export function useWork(id: string): Work | undefined {
@@ -474,6 +483,13 @@ export function addChild(name: string, grade: number, birthYear: number | null) 
 export function updateChild(id: string, name: string, grade: number, level: string) {
   return withPin<boolean>(async (pin) =>
     createClient().rpc("update_child", { p_pin: pin, p_child: id, p_name: name, p_grade: grade, p_level: level }),
+  );
+}
+
+/** Parent turns speech-to-text on or off for a child (needs the parent PIN). */
+export function setChildVoiceTyping(id: string, enabled: boolean) {
+  return withPin<boolean>(async (pin) =>
+    createClient().rpc("set_child_voice_typing", { p_pin: pin, p_child: id, p_enabled: enabled }),
   );
 }
 

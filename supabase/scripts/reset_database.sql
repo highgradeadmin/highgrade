@@ -20,5 +20,5 @@ drop function if exists
   public.add_child(text, text, int, int), public.update_child(text, uuid, text, int),
   public.delete_child(text, uuid), public.owns_child(uuid),
   public.update_child(text, uuid, text, int, text), public.advance_child_level(uuid),
-  public.set_child_avatar(uuid, text, text)
+  public.set_child_avatar(uuid, text, text), public.set_child_voice_typing(text, uuid, boolean)
   cascade;

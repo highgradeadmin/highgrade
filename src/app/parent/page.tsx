@@ -17,6 +17,7 @@ import {
   setParentPin,
   signOut,
   unlockParentArea,
+  setChildVoiceTyping,
   updateChild,
   useAuthStatus,
   useChildren,
@@ -299,6 +300,47 @@ function ParentDashboard() {
   );
 }
 
+/** Parent switch for speech-to-text (🎤). Off by default because the browser's maker processes the audio. */
+function VoiceTypingSwitch({ child }: { child: Child }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const on = child.voiceTyping;
+  return (
+    <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <span id={`voice-${child.id}`} className="text-sm font-medium">
+          🎤 Speak instead of type
+        </span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={on}
+          aria-labelledby={`voice-${child.id}`}
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setError(null);
+            const res = await setChildVoiceTyping(child.id, !on);
+            setBusy(false);
+            if (!res.ok) setError(res.error);
+          }}
+          className={`relative h-6 w-11 shrink-0 rounded-full transition disabled:opacity-50 ${on ? "bg-indigo-600" : "bg-slate-300"}`}
+        >
+          <span
+            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${on ? "left-[1.375rem]" : "left-0.5"}`}
+          />
+        </button>
+      </div>
+      <p className="mt-1 text-xs text-slate-600">
+        Lets {child.name} speak their writing with a 🎤 button. It uses your browser&apos;s own speech
+        recognition, so the voice is processed by the browser&apos;s maker (Google for Chrome and Edge, Apple
+        for Safari). HighGrade never receives or stores audio. Works in Chrome, Edge and Safari.
+      </p>
+      {error && <p className="mt-1 text-xs text-red-700">{error}</p>}
+    </div>
+  );
+}
+
 function ChildCard({ child, stats, onOpen }: { child: Child; stats?: ChildStats; onOpen: () => void }) {
   const [mode, setMode] = useState<"view" | "edit" | "remove">("view");
   const [name, setName] = useState(child.name);
@@ -353,6 +395,7 @@ function ChildCard({ child, stats, onOpen }: { child: Child; stats?: ChildStats;
               "No writing yet."
             )}
           </p>
+          <VoiceTypingSwitch child={child} />
           <div className="mt-4 flex flex-wrap gap-2">
             <button onClick={onOpen} className={primary}>
               View progress

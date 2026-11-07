@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useRef, useState } from "react";
 import { MAX_TRIES, type Feedback } from "@/lib/feedback";
 import type { Genre } from "@/lib/lessons";
 import Link from "next/link";
@@ -8,6 +8,7 @@ import {
   addDraft,
   flushWork,
   getActiveChildId,
+  getWork,
   saveWork,
   useAuthStatus,
   useProfile,
@@ -23,6 +24,7 @@ import { FeedbackPanel } from "./FeedbackPanel";
 import { ImprovedVersion } from "./ImprovedVersion";
 import { PlanToDraftExample } from "./PlanToDraftExample";
 import { ReadAloud } from "./ReadAloud";
+import { joinSpoken, SpeechButton } from "./SpeechButton";
 import { TryComparison } from "./TryComparison";
 
 export interface StudioTask {
@@ -71,6 +73,37 @@ export function WritingStudio({ task }: { task: StudioTask }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeLine, setActiveLine] = useState<number | null>(null);
+  // Speech-to-text: allowed per child by a parent. The coach is told when the draft was spoken.
+  const voice = profile?.voiceTyping ?? false;
+  const [spokeInDraft, setSpokeInDraft] = useState(false);
+  const draftRef = useRef<HTMLTextAreaElement>(null);
+  const fieldId = useId();
+
+  /** Latest copy from the store, so quick speech results don't overwrite each other. */
+  const current = () => getWork(task.id) ?? work;
+
+  function speakIntoNote(question: string, spoken: string) {
+    const w = current();
+    const { text } = joinSpoken(w.notes[question] ?? "", spoken);
+    saveWork({ ...w, notes: { ...w.notes, [question]: text } });
+  }
+
+  function speakIntoLine(i: number, spoken: string) {
+    const w = current();
+    const outline = task.outline.map((_, j) => w.outline[j] ?? "");
+    outline[i] = joinSpoken(outline[i], spoken).text;
+    saveWork({ ...w, outline });
+  }
+
+  function speakIntoDraft(spoken: string) {
+    const w = current();
+    const el = draftRef.current;
+    const at = el ? Math.min(el.selectionStart ?? w.text.length, w.text.length) : w.text.length;
+    const { text, caret } = joinSpoken(w.text.slice(0, at), spoken, w.text.slice(at));
+    saveWork({ ...w, text });
+    setSpokeInDraft(true);
+    requestAnimationFrame(() => draftRef.current?.setSelectionRange(caret, caret));
+  }
 
   const update = (patch: Partial<Work>) => saveWork({ ...work, ...patch });
   const words = countWords(work.text);
@@ -139,6 +172,7 @@ export function WritingStudio({ task }: { task: StudioTask }) {
           genre: task.genre,
           focus: task.focus,
           checklist: task.checklist,
+          dictated: spokeInDraft,
         }),
       });
       const data = (await res.json()) as { feedback?: Feedback; at?: string; error?: string };
@@ -236,17 +270,23 @@ export function WritingStudio({ task }: { task: StudioTask }) {
             Write <b>quick notes</b> — just words, not sentences.
             <Example>cold water · fireflies · grandma&apos;s dock · feels calm</Example>
           </StepIntro>
-          {task.brainstorm.map((q) => (
-            <label key={q} className="block">
-              <span className="font-semibold text-slate-800">{q}</span>
+          {task.brainstorm.map((q, i) => (
+            <div key={q}>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <label htmlFor={`${fieldId}-b${i}`} className="font-semibold text-slate-800">
+                  {q}
+                </label>
+                {voice && <SpeechButton size="sm" onText={(t) => speakIntoNote(q, t)} />}
+              </div>
               <textarea
+                id={`${fieldId}-b${i}`}
                 className="mt-1 w-full rounded-xl border-2 border-slate-200 bg-white p-2.5 focus:border-indigo-500 focus:outline-none"
                 rows={2}
                 placeholder="Quick notes…"
                 value={work.notes[q] ?? ""}
                 onChange={(e) => update({ notes: { ...work.notes, [q]: e.target.value } })}
               />
-            </label>
+            </div>
           ))}
           <NextButton onClick={() => goTo("Outline")}>Next: Outline</NextButton>
         </section>
@@ -292,9 +332,15 @@ export function WritingStudio({ task }: { task: StudioTask }) {
             </div>
           )}
           {task.outline.map((label, i) => (
-            <label key={label} className="block">
-              <span className="font-semibold text-slate-800">{label}</span>
+            <div key={label}>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <label htmlFor={`${fieldId}-o${i}`} className="font-semibold text-slate-800">
+                  {label}
+                </label>
+                {voice && <SpeechButton size="sm" onText={(t) => speakIntoLine(i, t)} />}
+              </div>
               <input
+                id={`${fieldId}-o${i}`}
                 className={`mt-1 w-full rounded-xl border-2 bg-white p-2.5 focus:border-indigo-500 focus:outline-none ${
                   activeLine === i ? "border-indigo-400" : "border-slate-200"
                 }`}
@@ -307,7 +353,7 @@ export function WritingStudio({ task }: { task: StudioTask }) {
                   update({ outline });
                 }}
               />
-            </label>
+            </div>
           ))}
           <NextButton onClick={() => goTo("Draft")}>Next: Draft</NextButton>
         </section>
@@ -348,7 +394,14 @@ export function WritingStudio({ task }: { task: StudioTask }) {
                 </button>
               </div>
             )}
+            {voice && (
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <SpeechButton label="Speak my writing" onText={speakIntoDraft} />
+                <span className="text-xs text-slate-500">Tip: say your sentences, then fix any wrong words and add full stops.</span>
+              </div>
+            )}
             <textarea
+              ref={draftRef}
               className="h-80 w-full rounded-2xl border-2 border-slate-200 bg-white p-4 text-lg leading-relaxed focus:border-indigo-500 focus:outline-none lg:h-[28rem]"
               placeholder="Write your full piece here…"
               value={work.text}

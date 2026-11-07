@@ -142,6 +142,9 @@ export async function POST(request: Request) {
     previousText
       ? `This is a revision. Their previous draft was:\n<previous_draft>\n${previousText}\n</previous_draft>\nNotice and praise specific improvements before suggesting more.`
       : null,
+    req.dictated
+      ? "The student spoke some of this draft using speech-to-text, so the computer did the spelling. Don't praise or score spelling. For conventions, focus on what the student controls: full stops, capital letters at sentence starts and where sentences begin and end. Ignore odd words that look like speech-recognition mistakes."
+      : null,
     copiedCoach
       ? "Most of this draft is copied from the improved version you showed last time. Gently remind the student that copying won't help them learn, and ask them to make the changes in their own words. Score it honestly."
       : null,
