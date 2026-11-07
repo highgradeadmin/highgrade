@@ -1,8 +1,6 @@
 import Link from "next/link";
-import { connection } from "next/server";
-import { Suspense } from "react";
 import { HomeSwitch } from "@/components/ChildHome";
-import { getDailyPrompt } from "@/lib/daily-prompts";
+import { TodayPrompt } from "@/components/DailyWrite";
 
 const LOOP = [
   { n: "1", title: "Learn a skill", body: "Short lessons with strong vs. weak examples, so you see exactly what good writing looks like." },
@@ -11,27 +9,16 @@ const LOOP = [
   { n: "4", title: "See it improved", body: "See your own sentences made stronger, then make the changes in your own words and watch your scores climb." },
 ];
 
+/** Children see their own home page; visitors and parents see the public one. */
 export default function Home() {
   return (
-    <Suspense fallback={<div className="h-72 animate-pulse rounded-3xl bg-indigo-50" />}>
-      <HomeContent />
-    </Suspense>
-  );
-}
-
-/** Children see their own home page; visitors and parents see the public one. */
-async function HomeContent() {
-  await connection(); // choose the prompt per request, not at build time
-  const daily = getDailyPrompt();
-  const todayKey = `daily:${new Date().toISOString().slice(0, 10)}`;
-  return (
-    <HomeSwitch daily={daily.prompt} todayKey={todayKey}>
-      <PublicHome daily={daily.prompt} />
+    <HomeSwitch>
+      <PublicHome />
     </HomeSwitch>
   );
 }
 
-function PublicHome({ daily }: { daily: string }) {
+function PublicHome() {
   return (
     <div className="space-y-12">
       <section className="rounded-3xl bg-gradient-to-br from-indigo-600 to-violet-600 px-6 py-12 text-white sm:px-10">
@@ -66,7 +53,9 @@ function PublicHome({ daily }: { daily: string }) {
 
       <section className="rounded-3xl border border-amber-200 bg-amber-50 p-6">
         <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Today&apos;s writing prompt</p>
-        <p className="mt-2 text-lg text-slate-900">{daily}</p>
+        <div className="mt-2">
+          <TodayPrompt />
+        </div>
         <Link href="/write" className="mt-4 inline-block font-semibold text-amber-800 hover:underline">
           Write now →
         </Link>

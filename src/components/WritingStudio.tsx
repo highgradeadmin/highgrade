@@ -18,6 +18,7 @@ import {
 } from "@/lib/storage";
 import type { Walkthrough } from "@/lib/walkthroughs";
 import { CoachSays } from "./Coach";
+import { FeedbackLoading } from "./FeedbackLoading";
 import { FeedbackPanel } from "./FeedbackPanel";
 import { ImprovedVersion } from "./ImprovedVersion";
 import { PlanToDraftExample } from "./PlanToDraftExample";
@@ -278,6 +279,7 @@ export function WritingStudio({ task }: { task: StudioTask }) {
               placeholder="Write your full piece here…"
               value={work.text}
               onChange={(e) => update({ text: e.target.value })}
+              readOnly={loading}
               spellCheck
             />
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -301,6 +303,7 @@ export function WritingStudio({ task }: { task: StudioTask }) {
                     : `Get feedback · try ${triesUsed + 1} of ${MAX_TRIES}`}
               </button>
             </div>
+            {loading && <FeedbackLoading />}
             {outOfTries ? (
               <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
                 <b>You finished all {MAX_TRIES} tries!</b> Try a new piece:{" "}
@@ -367,7 +370,7 @@ export function WritingStudio({ task }: { task: StudioTask }) {
             </div>
           </section>
 
-          <aside className="space-y-4">
+          <aside className={`space-y-4 transition-opacity ${loading ? "pointer-events-none opacity-40" : ""}`}>
             {latestFeedback ? (
               <div className="rounded-3xl border border-slate-200 bg-white p-4">
                 <div className="mb-3 flex items-center justify-between">

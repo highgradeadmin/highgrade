@@ -8,14 +8,15 @@ import { useActiveChild, useAllWorkMap, useAuthStatus, useWorksLoading, type Wor
 import { Avatar } from "./Avatar";
 import { CoachSays } from "./Coach";
 import { ProficiencyBadge } from "./ProficiencyBadge";
-import { ReadAloud } from "./ReadAloud";
+import { useLocalDay } from "@/lib/local-day";
+import { TodayPrompt } from "./DailyWrite";
 
 /** Shows the child's own home when a child profile is active; otherwise the public home page. */
-export function HomeSwitch({ daily, todayKey, children }: { daily: string; todayKey: string; children: React.ReactNode }) {
+export function HomeSwitch({ children }: { children: React.ReactNode }) {
   const status = useAuthStatus();
   const child = useActiveChild();
   if (status === "loading") return <div className="h-72 animate-pulse rounded-3xl bg-indigo-50" />;
-  if (status === "ready" && child) return <ChildHome daily={daily} todayKey={todayKey} />;
+  if (status === "ready" && child) return <ChildHome />;
   return <>{children}</>;
 }
 
@@ -23,8 +24,10 @@ function hrefFor(w: Work) {
   return w.lessonSlug ? `/lessons/${w.lessonSlug}` : "/write";
 }
 
-function ChildHome({ daily, todayKey }: { daily: string; todayKey: string }) {
+function ChildHome() {
   const child = useActiveChild()!;
+  const today = useLocalDay();
+  const todayKey = today ? `daily:${today}` : "";
   const works = useAllWorkMap();
   const loading = useWorksLoading();
 
@@ -80,10 +83,7 @@ function ChildHome({ daily, todayKey }: { daily: string; todayKey: string }) {
           )}
 
           <Card emoji="✍️" title="Today's prompt" tone="bg-amber-50 border-amber-200">
-            <p className="text-slate-900">{daily}</p>
-            <div className="mt-2">
-              <ReadAloud text={daily} />
-            </div>
+            <TodayPrompt level={child.level} />
             <CardLink href="/write">Write now</CardLink>
           </Card>
         </div>
