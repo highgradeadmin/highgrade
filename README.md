@@ -1,14 +1,14 @@
 # HighGrade Writing
 
 A writing-practice site for students in grade 5 and up: short lessons, guided
-Brainstorm → Outline → Draft → Revise practice, and an AI writing coach (Claude)
-that gives rubric-based feedback without writing for the student.
+Brainstorm → Outline → Draft → Improve practice, and an AI writing coach (Claude)
+that gives rubric-based feedback and shows the student their own sentences made stronger.
 
 ## Setup
 
 1. **Claude API key** — create one at https://console.anthropic.com.
 2. **Supabase project** — create a free project at https://supabase.com/dashboard, then:
-   - **SQL Editor → New query**: run each file in `supabase/migrations/` in order (0001 → 0004).
+   - **SQL Editor → New query**: run each file in `supabase/migrations/` in order (0001 → 0002).
    - **Authentication → URL Configuration**: set *Site URL* to `http://localhost:3000`
      (add your production URL later) and add `http://localhost:3000/auth/confirm` to *Redirect URLs*.
    - **Project Settings → API Keys**: copy the project URL and the **publishable** key.

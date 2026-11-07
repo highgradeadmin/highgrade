@@ -18,6 +18,7 @@ import {
 } from "@/lib/storage";
 import type { Walkthrough } from "@/lib/walkthroughs";
 import { FeedbackPanel } from "./FeedbackPanel";
+import { ImprovedVersion } from "./ImprovedVersion";
 import { PlanToDraftExample } from "./PlanToDraftExample";
 import { TryComparison } from "./TryComparison";
 
@@ -36,7 +37,7 @@ export interface StudioTask {
   walkthrough?: Walkthrough;
 }
 
-const STEPS = ["Brainstorm", "Outline", "Draft", "Revise"] as const;
+const STEPS = ["Brainstorm", "Outline", "Draft", "Improve"] as const;
 type Step = (typeof STEPS)[number];
 
 function countWords(text: string) {
@@ -63,7 +64,7 @@ export function WritingStudio({ task }: { task: StudioTask }) {
     updatedAt: "", // set by saveWork()
   };
 
-  const [step, setStep] = useState<Step>(work.drafts.length ? "Revise" : "Brainstorm");
+  const [step, setStep] = useState<Step>(work.drafts.length ? "Draft" : "Brainstorm");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -74,6 +75,17 @@ export function WritingStudio({ task }: { task: StudioTask }) {
   const unchangedSinceFeedback = latest?.text === work.text;
   const triesUsed = work.drafts.length;
   const outOfTries = triesUsed >= MAX_TRIES;
+  const latestFeedback = latest?.feedback;
+  const hasImproved = Boolean(latestFeedback?.improved_version || latestFeedback?.sentence_makeovers?.length);
+
+  /** Moving to Draft with an empty box copies the plan in, so the student edits it into sentences. */
+  function goTo(next: Step) {
+    if (next === "Draft" && !work.text.trim() && hasOutline) {
+      update({ text: task.outline.map((_, i) => work.outline[i]?.trim()).filter(Boolean).join("\n") });
+    }
+    setStep(next);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
   async function getFeedback() {
     if (!profile) return;
@@ -99,7 +111,6 @@ export function WritingStudio({ task }: { task: StudioTask }) {
       const data = (await res.json()) as { feedback?: Feedback; at?: string; error?: string };
       if (!res.ok || !data.feedback) throw new Error(data.error ?? "Something went wrong.");
       addDraft(task.id, { text: work.text, feedback: data.feedback, at: data.at ?? "" });
-      setStep("Revise");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
@@ -168,7 +179,7 @@ export function WritingStudio({ task }: { task: StudioTask }) {
         {STEPS.map((s, i) => (
           <button
             key={s}
-            onClick={() => setStep(s)}
+            onClick={() => goTo(s)}
             className={`flex-1 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition ${
               step === s ? "bg-white text-indigo-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
             }`}
@@ -197,7 +208,7 @@ export function WritingStudio({ task }: { task: StudioTask }) {
               />
             </label>
           ))}
-          <NextButton onClick={() => setStep("Outline")}>Next: Outline</NextButton>
+          <NextButton onClick={() => goTo("Outline")}>Next: Outline</NextButton>
         </section>
       )}
 
@@ -223,60 +234,28 @@ export function WritingStudio({ task }: { task: StudioTask }) {
               />
             </label>
           ))}
-          <NextButton onClick={() => setStep("Draft")}>Next: Draft</NextButton>
+          <NextButton onClick={() => goTo("Draft")}>Next: Draft</NextButton>
         </section>
       )}
 
-      {(step === "Draft" || step === "Revise") && (
+      {step === "Draft" && (
         <div className="grid gap-4 lg:grid-cols-2">
           <section className="space-y-3">
-            {step === "Draft" && (
-              <StepIntro n={3} title="Write it for real">
-                Your brainstorm and plan are your <b>raw material</b> — now build the finished piece:
-                <ul className="mt-1 list-disc space-y-0.5 pl-5">
-                  <li>Use your <b>best</b> brainstorm ideas. Leaving some out is normal.</li>
-                  <li>Keep your plan&apos;s order, and grow each line into one or more <b>full sentences</b>.</li>
-                  <li>Add details (what you saw, heard, felt) and linking words like <i>also, because, best of all</i>.</li>
-                </ul>
-                <p className="mt-1">Your draft should be clearly longer and richer than your plan. Don&apos;t worry about perfect — you&apos;ll revise next.</p>
-              </StepIntro>
-            )}
-            {step === "Draft" && hasOutline && (
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-medium text-slate-800">Your plan</p>
-                  {!work.text.trim() && (
-                    <button
-                      onClick={() => update({ text: task.outline.map((_, i) => work.outline[i]?.trim()).filter(Boolean).join("\n\n") })}
-                      className="rounded-md border border-indigo-200 bg-white px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50"
-                    >
-                      Start from my plan
-                    </button>
-                  )}
-                </div>
-                <ol className="mt-2 list-decimal space-y-1 pl-5 text-slate-700">
-                  {task.outline.map((label, i) =>
-                    work.outline[i] ? (
-                      <li key={label}>
-                        <span className="text-slate-500">{label}:</span> {work.outline[i]}
-                      </li>
-                    ) : null,
-                  )}
-                </ol>
-                {!work.text.trim() && (
-                  <p className="mt-2 text-xs text-slate-500">
-                    &ldquo;Start from my plan&rdquo; copies these lines into the box below so you can grow each
-                    one into full sentences.
-                  </p>
-                )}
-              </div>
-            )}
-            {step === "Draft" && task.walkthrough && (
-              <PlanToDraftExample example={task.walkthrough} defaultOpen={!work.text.trim()} />
-            )}
+            <StepIntro n={3} title={triesUsed ? "Make it better" : "Write it for real"}>
+              {triesUsed ? (
+                <>Read the feedback, change your writing in the box, then get feedback again.</>
+              ) : hasOutline ? (
+                <>
+                  Your plan is copied below. <b>Turn each line into full sentences</b> and add details. Change
+                  anything you like.
+                </>
+              ) : (
+                <>Write your piece in the box below, in full sentences.</>
+              )}
+            </StepIntro>
             <textarea
               className="h-80 w-full rounded-lg border border-slate-300 p-3 leading-relaxed focus:border-indigo-500 focus:outline-none lg:h-[28rem]"
-              placeholder="Write your full piece here. Turn each line of your plan into complete sentences…"
+              placeholder="Write your full piece here…"
               value={work.text}
               onChange={(e) => update({ text: e.target.value })}
               spellCheck
@@ -284,7 +263,7 @@ export function WritingStudio({ task }: { task: StudioTask }) {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-sm">
                 <span className={words >= task.targetWords[0] ? "text-emerald-700" : "text-slate-500"}>
-                  {words} words
+                  {words} / {task.targetWords[0]}+ words
                 </span>
                 <span className={`ml-3 text-xs ${saveStatus === "error" ? "text-red-600" : "text-slate-400"}`}>
                   {saveStatus === "saving" ? "Saving…" : saveStatus === "error" ? "Not saved — check connection" : "Saved"}
@@ -304,8 +283,7 @@ export function WritingStudio({ task }: { task: StudioTask }) {
             </div>
             {outOfTries ? (
               <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
-                <b>You finished all {MAX_TRIES} tries on this piece!</b> Look at how your scores changed, then
-                use what you learned on a new piece:{" "}
+                <b>You finished all {MAX_TRIES} tries!</b> Try a new piece:{" "}
                 <Link href="/write" className="font-medium underline">
                   today&apos;s prompt
                 </Link>{" "}
@@ -317,52 +295,60 @@ export function WritingStudio({ task }: { task: StudioTask }) {
               </div>
             ) : (
               unchangedSinceFeedback && (
-                <p className="text-right text-xs text-slate-500">
-                  Make some changes, then get feedback again to see your new score.
-                </p>
+                <p className="text-right text-xs text-slate-500">Change your writing to get feedback again.</p>
               )
             )}
             {error && <p className="rounded-lg bg-red-50 p-2 text-sm text-red-700">{error}</p>}
+
+            <div className="space-y-2">
+              {hasOutline && (
+                <details className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+                  <summary className="cursor-pointer font-medium text-slate-800">My plan</summary>
+                  <ol className="mt-2 list-decimal space-y-1 pl-5 text-slate-700">
+                    {task.outline.map((label, i) =>
+                      work.outline[i] ? (
+                        <li key={label}>
+                          <span className="text-slate-500">{label}:</span> {work.outline[i]}
+                        </li>
+                      ) : null,
+                    )}
+                  </ol>
+                </details>
+              )}
+              {task.walkthrough && <PlanToDraftExample example={task.walkthrough} defaultOpen={false} />}
+              {task.checklist.length > 0 && (
+                <details className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
+                  <summary className="cursor-pointer font-medium text-slate-800">
+                    Checklist ({work.checked.length}/{task.checklist.length})
+                  </summary>
+                  <ul className="mt-2 space-y-1">
+                    {task.checklist.map((c, i) => (
+                      <li key={c}>
+                        <label className="flex gap-2">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5"
+                            checked={work.checked.includes(i)}
+                            onChange={(e) =>
+                              update({
+                                checked: e.target.checked
+                                  ? [...work.checked, i]
+                                  : work.checked.filter((x) => x !== i),
+                              })
+                            }
+                          />
+                          {c}
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
           </section>
 
           <aside className="space-y-4">
-            {step === "Revise" && (
-              <StepIntro n={4} title="Make it better">
-                Read your coach&apos;s feedback, then <b>change your writing in the box</b> — add,
-                cut or reword. Tick the checklist as you go, then get feedback again to see how your
-                score changes. You have {MAX_TRIES - triesUsed} of {MAX_TRIES} tries left.
-              </StepIntro>
-            )}
-            {step === "Revise" && (
-              <div className="rounded-xl border border-slate-200 bg-white p-4">
-                <h3 className="mb-2 font-semibold">Revision checklist</h3>
-                <ul className="space-y-1">
-                  {task.checklist.map((c, i) => (
-                    <li key={c}>
-                      <label className="flex gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          className="mt-0.5"
-                          checked={work.checked.includes(i)}
-                          onChange={(e) =>
-                            update({
-                              checked: e.target.checked
-                                ? [...work.checked, i]
-                                : work.checked.filter((x) => x !== i),
-                            })
-                          }
-                        />
-                        {c}
-                      </label>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {step === "Revise" && <TryComparison drafts={work.drafts} />}
-
-            {latest?.feedback ? (
+            {latestFeedback ? (
               <div className="rounded-xl border border-slate-200 bg-white p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <h3 className="font-semibold">Coach feedback</h3>
@@ -370,17 +356,48 @@ export function WritingStudio({ task }: { task: StudioTask }) {
                     Try {triesUsed} of {MAX_TRIES}
                   </span>
                 </div>
-                <FeedbackPanel feedback={latest.feedback} />
+                <FeedbackPanel feedback={latestFeedback} />
+                {hasImproved && (
+                  <button
+                    onClick={() => goTo("Improve")}
+                    className="mt-4 w-full rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900 hover:bg-emerald-100"
+                  >
+                    ✨ See how to make it better →
+                  </button>
+                )}
               </div>
             ) : (
               <div className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">
-                When your draft is ready, click <b>Get feedback</b>. Your coach will score it and give you
-                one or two things to improve. You get {MAX_TRIES} tries on each piece, so revise and
-                watch your score change!
+                Done? Click <b>Get feedback</b>. You get {MAX_TRIES} tries.
               </div>
             )}
+            {triesUsed > 1 && <TryComparison drafts={work.drafts} />}
           </aside>
         </div>
+      )}
+
+      {step === "Improve" && (
+        <section className="space-y-4">
+          <StepIntro n={4} title="See it improved">
+            {latestFeedback ? (
+              <>
+                Here&apos;s how your coach would make your writing stronger. Read it, then go back and make{" "}
+                <b>your own changes, in your own words</b>.
+              </>
+            ) : (
+              <>Get feedback on your draft first. Then you&apos;ll see your sentences made even better here.</>
+            )}
+          </StepIntro>
+          {latest && latestFeedback && <ImprovedVersion feedback={latestFeedback} studentText={latest.text} />}
+          <div className="flex justify-end">
+            <button
+              onClick={() => goTo("Draft")}
+              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+            >
+              {latestFeedback && !outOfTries ? "Back to my draft to make changes →" : "Back to my draft →"}
+            </button>
+          </div>
+        </section>
       )}
     </div>
   );

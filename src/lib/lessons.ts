@@ -23,7 +23,7 @@ export interface Lesson {
     /** Guiding questions for the Brainstorm and Outline steps. */
     brainstorm: string[];
     outline: string[];
-    /** Revision checklist shown in the Revise step. */
+    /** Revision checklist shown in the Draft step. */
     checklist: string[];
   };
 }
