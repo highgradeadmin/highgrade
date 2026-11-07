@@ -1,10 +1,12 @@
 @import "tailwindcss";
 
 @theme inline {
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-lexend);
 }
 
 body {
-  background: #f8fafc;
+  /* soft, warm paper colour instead of plain grey */
+  background: #faf8ff;
   color: #0f172a;
+  line-height: 1.6;
 }

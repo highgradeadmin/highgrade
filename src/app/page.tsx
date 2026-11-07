@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { connection } from "next/server";
 import { Suspense } from "react";
+import { HomeSwitch } from "@/components/ChildHome";
 import { getDailyPrompt } from "@/lib/daily-prompts";
 
 const LOOP = [
@@ -12,17 +13,37 @@ const LOOP = [
 
 export default function Home() {
   return (
+    <Suspense fallback={<div className="h-72 animate-pulse rounded-3xl bg-indigo-50" />}>
+      <HomeContent />
+    </Suspense>
+  );
+}
+
+/** Children see their own home page; visitors and parents see the public one. */
+async function HomeContent() {
+  await connection(); // choose the prompt per request, not at build time
+  const daily = getDailyPrompt();
+  const todayKey = `daily:${new Date().toISOString().slice(0, 10)}`;
+  return (
+    <HomeSwitch daily={daily.prompt} todayKey={todayKey}>
+      <PublicHome daily={daily.prompt} />
+    </HomeSwitch>
+  );
+}
+
+function PublicHome({ daily }: { daily: string }) {
+  return (
     <div className="space-y-12">
-      <section className="rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 px-6 py-12 text-white sm:px-10">
+      <section className="rounded-3xl bg-gradient-to-br from-indigo-600 to-violet-600 px-6 py-12 text-white sm:px-10">
         <h1 className="max-w-2xl text-3xl font-bold sm:text-4xl">Become a confident writer, one draft at a time.</h1>
         <p className="mt-3 max-w-xl text-indigo-100">
           Lessons, guided practice and a personal writing coach for students in grade 5 and up.
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
-          <Link href="/lessons" className="rounded-lg bg-white px-5 py-2.5 font-semibold text-indigo-700 hover:bg-indigo-50">
+          <Link href="/lessons" className="rounded-full bg-white px-5 py-2.5 font-semibold text-indigo-700 hover:bg-indigo-50">
             Start a lesson
           </Link>
-          <Link href="/write" className="rounded-lg border border-white/60 px-5 py-2.5 font-semibold hover:bg-white/10">
+          <Link href="/write" className="rounded-full border border-white/60 px-5 py-2.5 font-semibold hover:bg-white/10">
             Today&apos;s prompt
           </Link>
         </div>
@@ -32,7 +53,7 @@ export default function Home() {
         <h2 className="mb-4 text-xl font-bold">How it works</h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {LOOP.map((s) => (
-            <div key={s.n} className="rounded-xl border border-slate-200 bg-white p-5">
+            <div key={s.n} className="rounded-3xl border border-slate-200 bg-white p-5">
               <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-full bg-indigo-100 font-bold text-indigo-700">
                 {s.n}
               </div>
@@ -43,23 +64,13 @@ export default function Home() {
         </div>
       </section>
 
-      <Suspense fallback={<div className="h-36 rounded-xl bg-amber-50" />}>
-        <DailyPromptCard />
-      </Suspense>
+      <section className="rounded-3xl border border-amber-200 bg-amber-50 p-6">
+        <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Today&apos;s writing prompt</p>
+        <p className="mt-2 text-lg text-slate-900">{daily}</p>
+        <Link href="/write" className="mt-4 inline-block font-semibold text-amber-800 hover:underline">
+          Write now →
+        </Link>
+      </section>
     </div>
-  );
-}
-
-async function DailyPromptCard() {
-  await connection(); // choose the prompt per request, not at build time
-  const daily = getDailyPrompt();
-  return (
-    <section className="rounded-xl border border-amber-200 bg-amber-50 p-6">
-      <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Today&apos;s writing prompt</p>
-      <p className="mt-2 text-lg text-slate-900">{daily.prompt}</p>
-      <Link href="/write" className="mt-4 inline-block font-semibold text-amber-800 hover:underline">
-        Write now →
-      </Link>
-    </section>
   );
 }

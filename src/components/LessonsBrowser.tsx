@@ -47,7 +47,7 @@ export function LessonsBrowser() {
 
   return (
     <div className="space-y-10">
-      <section className="rounded-xl border border-slate-200 bg-white p-5">
+      <section className="rounded-3xl border border-slate-200 bg-white p-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-sm text-slate-600">{child.name}&apos;s level</p>

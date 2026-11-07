@@ -1,5 +1,6 @@
 "use client";
 
+import { DEFAULT_COLORS } from "./avatars";
 import { useSyncExternalStore } from "react";
 import type { Feedback } from "./feedback";
 import type { Genre } from "./lessons";
@@ -17,6 +18,9 @@ export interface Child {
   birthYear: number | null;
   /** Lesson level band, e.g. "5-6". */
   level: string;
+  /** Avatar key (see lib/avatars.ts) and colour key, chosen by the child. */
+  avatar: string;
+  color: string;
 }
 
 /** The active child's profile (what the writing pages need). */
@@ -134,16 +138,35 @@ function start() {
   });
 }
 
-function toChild(r: { id: string; name: string; grade: number; birth_year: number | null; level: string }): Child {
-  return { id: r.id, name: r.name, grade: r.grade, birthYear: r.birth_year, level: r.level };
+type ChildRow = {
+  id: string;
+  name: string;
+  grade: number;
+  birth_year: number | null;
+  level: string;
+  avatar?: string;
+  color?: string;
+};
+
+function toChild(r: ChildRow, i: number): Child {
+  return {
+    id: r.id,
+    name: r.name,
+    grade: r.grade,
+    birthYear: r.birth_year,
+    level: r.level,
+    avatar: r.avatar ?? "owl",
+    color: r.color ?? DEFAULT_COLORS[i % DEFAULT_COLORS.length],
+  };
 }
 
 async function fetchChildren(): Promise<Child[]> {
   const { data } = await createClient()
     .from("children")
-    .select("id, name, grade, birth_year, level")
+    // "*" so profiles still load if the avatar migration (0003) hasn't been run yet.
+    .select("*")
     .order("created_at", { ascending: true });
-  return (data ?? []).map(toChild);
+  return ((data ?? []) as ChildRow[]).map(toChild);
 }
 
 async function load(userId: string, providerName: string | null = state.providerName) {
@@ -460,6 +483,18 @@ export async function advanceChildLevel(childId: string): Promise<string | null>
   if (error || !data) return null;
   setState({ children: await fetchChildren() });
   return data as string;
+}
+
+/** The child picks their own avatar and colour (no PIN; only for this parent's children). */
+export async function setChildAvatar(childId: string, avatar: string, color: string): Promise<boolean> {
+  const { data, error } = await createClient().rpc("set_child_avatar", {
+    p_child: childId,
+    p_avatar: avatar,
+    p_color: color,
+  });
+  if (error || !data) return false;
+  setState({ children: await fetchChildren() });
+  return true;
 }
 
 export async function deleteChild(id: string) {

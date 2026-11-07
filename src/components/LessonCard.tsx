@@ -11,7 +11,7 @@ export function LessonCard({ lesson, status, locked = false }: { lesson: Lesson;
       <span className="text-xs font-semibold uppercase tracking-wide text-indigo-600">
         {GENRE_LABELS[lesson.genre]} · {lesson.minutes} min
       </span>
-      <h3 className="mt-1 font-semibold">
+      <h3 className="mt-1 text-lg font-bold">
         {locked && <span aria-hidden>🔒 </span>}
         {lesson.title}
       </h3>
@@ -26,7 +26,7 @@ export function LessonCard({ lesson, status, locked = false }: { lesson: Lesson;
 
   if (locked) {
     return (
-      <div className="flex flex-col rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 opacity-70" aria-disabled>
+      <div className="flex flex-col rounded-3xl border-2 border-dashed border-slate-300 bg-slate-50 p-5 opacity-70" aria-disabled>
         {body}
       </div>
     );
@@ -34,7 +34,7 @@ export function LessonCard({ lesson, status, locked = false }: { lesson: Lesson;
   return (
     <Link
       href={`/lessons/${lesson.slug}`}
-      className="flex flex-col rounded-xl border border-slate-200 bg-white p-5 transition hover:border-indigo-300 hover:shadow-sm"
+      className="flex flex-col rounded-3xl border-2 border-slate-200 bg-white p-5 transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md"
     >
       {body}
     </Link>

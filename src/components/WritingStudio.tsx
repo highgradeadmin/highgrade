@@ -17,9 +17,11 @@ import {
   type Work,
 } from "@/lib/storage";
 import type { Walkthrough } from "@/lib/walkthroughs";
+import { CoachSays } from "./Coach";
 import { FeedbackPanel } from "./FeedbackPanel";
 import { ImprovedVersion } from "./ImprovedVersion";
 import { PlanToDraftExample } from "./PlanToDraftExample";
+import { ReadAloud } from "./ReadAloud";
 import { TryComparison } from "./TryComparison";
 
 export interface StudioTask {
@@ -167,20 +169,24 @@ export function WritingStudio({ task }: { task: StudioTask }) {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Your task</p>
-        <p className="mt-1 text-slate-900">{task.prompt}</p>
+      <div className="rounded-3xl border-2 border-amber-200 bg-amber-50 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-bold uppercase tracking-wide text-amber-800">🎯 Your task</p>
+          <ReadAloud text={task.prompt} />
+        </div>
+        <p className="mt-1 text-lg text-slate-900">{task.prompt}</p>
         <p className="mt-1 text-sm text-slate-600">
           Aim for {task.targetWords[0]}–{task.targetWords[1]} words.
         </p>
       </div>
 
-      <nav className="flex gap-1 overflow-x-auto rounded-xl bg-slate-100 p-1" aria-label="Writing steps">
+      <nav className="flex gap-1 overflow-x-auto rounded-full bg-indigo-100/70 p-1" aria-label="Writing steps">
         {STEPS.map((s, i) => (
           <button
             key={s}
             onClick={() => goTo(s)}
-            className={`flex-1 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition ${
+            aria-current={step === s ? "step" : undefined}
+            className={`flex-1 whitespace-nowrap rounded-full px-3 py-2 text-sm font-semibold transition ${
               step === s ? "bg-white text-indigo-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
             }`}
           >
@@ -191,16 +197,19 @@ export function WritingStudio({ task }: { task: StudioTask }) {
 
       {step === "Brainstorm" && (
         <section className="space-y-4">
-          <StepIntro n={1} title="Collect your ideas">
-            Write <b>quick notes</b> — single words or short phrases, not sentences. Get as many ideas
-            down as you can; you&apos;ll choose the best ones next.
+          <StepIntro
+            n={1}
+            title="Collect your ideas"
+            speak={`Write quick notes. Just words, not sentences. ${task.brainstorm.join(" ")}`}
+          >
+            Write <b>quick notes</b> — just words, not sentences.
             <Example>cold water · fireflies · grandma&apos;s dock · feels calm</Example>
           </StepIntro>
           {task.brainstorm.map((q) => (
             <label key={q} className="block">
-              <span className="text-sm font-medium text-slate-800">{q}</span>
+              <span className="font-semibold text-slate-800">{q}</span>
               <textarea
-                className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm focus:border-indigo-500 focus:outline-none"
+                className="mt-1 w-full rounded-xl border-2 border-slate-200 bg-white p-2.5 focus:border-indigo-500 focus:outline-none"
                 rows={2}
                 placeholder="Quick notes…"
                 value={work.notes[q] ?? ""}
@@ -214,16 +223,19 @@ export function WritingStudio({ task }: { task: StudioTask }) {
 
       {step === "Outline" && (
         <section className="space-y-3">
-          <StepIntro n={2} title="Make a plan">
-            Pick your best ideas and put them in order. Keep each line <b>short — a few words</b>.
-            This is your map; you&apos;ll write the full sentences in the next step.
+          <StepIntro
+            n={2}
+            title="Make a plan"
+            speak={`Pick your best ideas and put them in order. Just a few words on each line. ${task.outline.join(". ")}.`}
+          >
+            Pick your best ideas and put them in order. <b>A few words</b> on each line.
             <Example>Topic: lake = my happy place · Detail: icy water in July</Example>
           </StepIntro>
           {task.outline.map((label, i) => (
             <label key={label} className="block">
-              <span className="text-sm font-medium text-slate-800">{label}</span>
+              <span className="font-semibold text-slate-800">{label}</span>
               <input
-                className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm focus:border-indigo-500 focus:outline-none"
+                className="mt-1 w-full rounded-xl border-2 border-slate-200 bg-white p-2.5 focus:border-indigo-500 focus:outline-none"
                 placeholder="A few words…"
                 value={work.outline[i] ?? ""}
                 onChange={(e) => {
@@ -241,7 +253,15 @@ export function WritingStudio({ task }: { task: StudioTask }) {
       {step === "Draft" && (
         <div className="grid gap-4 lg:grid-cols-2">
           <section className="space-y-3">
-            <StepIntro n={3} title={triesUsed ? "Make it better" : "Write it for real"}>
+            <StepIntro
+              n={3}
+              title={triesUsed ? "Make it better" : "Write it for real"}
+              speak={
+                triesUsed
+                  ? "Read the feedback, change your writing in the box, then get feedback again."
+                  : "Turn each line of your plan into full sentences, and add details."
+              }
+            >
               {triesUsed ? (
                 <>Read the feedback, change your writing in the box, then get feedback again.</>
               ) : hasOutline ? (
@@ -254,7 +274,7 @@ export function WritingStudio({ task }: { task: StudioTask }) {
               )}
             </StepIntro>
             <textarea
-              className="h-80 w-full rounded-lg border border-slate-300 p-3 leading-relaxed focus:border-indigo-500 focus:outline-none lg:h-[28rem]"
+              className="h-80 w-full rounded-2xl border-2 border-slate-200 bg-white p-4 text-lg leading-relaxed focus:border-indigo-500 focus:outline-none lg:h-[28rem]"
               placeholder="Write your full piece here…"
               value={work.text}
               onChange={(e) => update({ text: e.target.value })}
@@ -272,7 +292,7 @@ export function WritingStudio({ task }: { task: StudioTask }) {
               <button
                 onClick={getFeedback}
                 disabled={loading || words < 5 || unchangedSinceFeedback || outOfTries}
-                className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-full bg-indigo-600 px-5 py-2.5 font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {loading
                   ? "Reading your writing…"
@@ -349,9 +369,9 @@ export function WritingStudio({ task }: { task: StudioTask }) {
 
           <aside className="space-y-4">
             {latestFeedback ? (
-              <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <div className="rounded-3xl border border-slate-200 bg-white p-4">
                 <div className="mb-3 flex items-center justify-between">
-                  <h3 className="font-semibold">Coach feedback</h3>
+                  <h3 className="font-bold">Coach feedback</h3>
                   <span className="text-xs text-slate-500">
                     Try {triesUsed} of {MAX_TRIES}
                   </span>
@@ -378,7 +398,11 @@ export function WritingStudio({ task }: { task: StudioTask }) {
 
       {step === "Improve" && (
         <section className="space-y-4">
-          <StepIntro n={4} title="See it improved">
+          <StepIntro
+            n={4}
+            title="See it improved"
+            speak="Here's how your coach would make your writing stronger. Read it, then go back and make your own changes, in your own words."
+          >
             {latestFeedback ? (
               <>
                 Here&apos;s how your coach would make your writing stronger. Read it, then go back and make{" "}
@@ -403,14 +427,26 @@ export function WritingStudio({ task }: { task: StudioTask }) {
   );
 }
 
-function StepIntro({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
+function StepIntro({
+  n,
+  title,
+  speak,
+  children,
+}: {
+  n: number;
+  title: string;
+  speak?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="rounded-lg border-l-4 border-indigo-400 bg-white p-3 text-sm text-slate-700 shadow-sm">
-      <p className="font-semibold text-slate-900">
-        Step {n} of 4 · {title}
-      </p>
-      <div className="mt-1">{children}</div>
-    </div>
+    <CoachSays title={`Step ${n} of 4 · ${title}`}>
+      <div className="text-slate-800">{children}</div>
+      {speak && (
+        <div className="mt-2">
+          <ReadAloud text={speak} />
+        </div>
+      )}
+    </CoachSays>
   );
 }
 
@@ -423,7 +459,7 @@ function NextButton({ onClick, children }: { onClick: () => void; children: Reac
     <div className="flex justify-end">
       <button
         onClick={onClick}
-        className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+        className="rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-700"
       >
         {children} →
       </button>

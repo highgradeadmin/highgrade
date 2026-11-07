@@ -1,6 +1,7 @@
 "use client";
 
 import type { Feedback } from "@/lib/feedback";
+import { ReadAloud } from "./ReadAloud";
 
 type Token = { text: string; added: boolean };
 
@@ -87,14 +88,17 @@ export function ImprovedVersion({ feedback, studentText }: { feedback: Partial<F
           <h3 className="mb-2 font-semibold">✨ Sentence makeovers</h3>
           <ul className="space-y-3">
             {makeovers.map((m, i) => (
-              <li key={i} className="rounded-xl border border-slate-200 bg-white p-4 text-sm">
+              <li key={i} className="rounded-3xl border border-slate-200 bg-white p-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">You wrote</p>
                 <p className="mt-1 text-slate-700">{m.before}</p>
                 <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-emerald-700">Even better</p>
                 <p {...noCopy} className={`${noCopy.className} mt-1 text-slate-900`}>
                   <Highlighted before={m.before} after={m.after} />
                 </p>
-                <p className="mt-2 text-slate-600">💡 {m.why}</p>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-slate-600">💡 {m.why}</p>
+                  <ReadAloud text={`You wrote: ${m.before} Even better: ${m.after}`} label="Hear both" />
+                </div>
               </li>
             ))}
           </ul>
@@ -113,7 +117,10 @@ export function ImprovedVersion({ feedback, studentText }: { feedback: Partial<F
               <div className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{studentText}</div>
             </div>
             <div className="rounded-xl border border-emerald-200 bg-white p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Coach&apos;s version</p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Coach&apos;s version</p>
+                <ReadAloud text={improved} label="Hear it" />
+              </div>
               <div
                 {...noCopy}
                 className={`${noCopy.className} mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-900`}

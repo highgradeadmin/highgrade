@@ -18,5 +18,7 @@ drop function if exists
   public.session_is_fresh(), public.parent_pin_status(), public.check_parent_pin(text),
   public.verify_parent_pin(text), public.set_parent_pin(text, text),
   public.add_child(text, text, int, int), public.update_child(text, uuid, text, int),
-  public.delete_child(text, uuid), public.owns_child(uuid)
+  public.delete_child(text, uuid), public.owns_child(uuid),
+  public.update_child(text, uuid, text, int, text), public.advance_child_level(uuid),
+  public.set_child_avatar(uuid, text, text)
   cascade;
