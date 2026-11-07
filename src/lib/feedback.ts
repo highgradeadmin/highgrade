@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { TRAIT_IDS } from "./traits";
 
+/** How many rounds of feedback a student gets on one piece of writing. */
+export const MAX_TRIES = 5;
+
 // Shape of the feedback Claude returns. Shared by the API route and the UI.
 export const FeedbackSchema = z.object({
   overall_comment: z
@@ -48,6 +51,7 @@ export const FeedbackSchema = z.object({
 export type Feedback = z.infer<typeof FeedbackSchema>;
 
 export const FeedbackRequestSchema = z.object({
+  childId: z.uuid(),
   taskKey: z.string().min(1).max(100),
   lessonSlug: z.string().max(100).nullable(),
   title: z.string().max(200),

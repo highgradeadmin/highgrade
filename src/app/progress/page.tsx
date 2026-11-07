@@ -2,18 +2,18 @@
 
 import Link from "next/link";
 import { DraftHistory } from "@/components/DraftHistory";
-import { GradePicker } from "@/components/GradePicker";
 import { useState } from "react";
 import { PerformanceSummary } from "@/components/PerformanceSummary";
 import { ScoreTrendChart } from "@/components/ScoreTrendChart";
 import { TraitProgress } from "@/components/TraitProgress";
 import { scoredDrafts, series, summary, traitSummaries, type Metric } from "@/lib/performance";
 import { TRAITS } from "@/lib/traits";
-import { useAllWorkMap, useAuthStatus, useProfile } from "@/lib/storage";
+import { useAllWorkMap, useAuthStatus, useProfile, useWorksLoading } from "@/lib/storage";
 
 export default function ProgressPage() {
   const status = useAuthStatus();
-  const [profile] = useProfile();
+  const profile = useProfile();
+  const worksLoading = useWorksLoading();
   const workMap = useAllWorkMap();
   const work = Object.values(workMap).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
@@ -29,11 +29,19 @@ export default function ProgressPage() {
   const totalWords = work.reduce((n, w) => n + (w.text.trim() ? w.text.trim().split(/\s+/).length : 0), 0);
   const revisions = work.reduce((n, w) => n + Math.max(0, w.drafts.length - 1), 0);
 
-  if (status === "loading") return <div className="h-40 animate-pulse rounded-xl bg-slate-100" />;
-  if (status !== "ready" || !profile) {
+  if (status === "loading" || worksLoading) return <div className="h-40 animate-pulse rounded-xl bg-slate-100" />;
+  if (status !== "ready") {
     return (
       <p className="rounded-xl border border-slate-200 bg-white p-6 text-center text-slate-700">
-        <Link href="/login" className="font-medium text-indigo-700 hover:underline">Log in</Link> to see your progress.
+        <Link href="/login" className="font-medium text-indigo-700 hover:underline">Log in</Link> to see progress.
+      </p>
+    );
+  }
+  if (!profile) {
+    return (
+      <p className="rounded-xl border border-slate-200 bg-white p-6 text-center text-slate-700">
+        <Link href="/profiles" className="font-medium text-indigo-700 hover:underline">Choose who&apos;s writing</Link>{" "}
+        to see their progress.
       </p>
     );
   }
@@ -44,11 +52,6 @@ export default function ProgressPage() {
         <h1 className="text-2xl font-bold">{profile.name}&apos;s progress</h1>
         <p className="text-slate-600">Grade {profile.grade}</p>
       </header>
-
-      <section className="rounded-xl border border-slate-200 bg-white p-5">
-        <h2 className="mb-3 font-semibold">Profile</h2>
-        <GradePicker initial={profile} />
-      </section>
 
       <section className="grid gap-4 sm:grid-cols-3">
         <Stat label="Pieces written" value={work.filter((w) => w.text.trim()).length} />

@@ -1,22 +1,25 @@
 "use client";
 
 import { useState } from "react";
-import type { Feedback } from "@/lib/feedback";
+import { MAX_TRIES, type Feedback } from "@/lib/feedback";
 import type { Genre } from "@/lib/lessons";
 import Link from "next/link";
 import {
   addDraft,
   flushWork,
+  getActiveChildId,
   saveWork,
   useAuthStatus,
   useProfile,
   useSaveStatus,
   useWork,
+  useWorksLoading,
   type Work,
 } from "@/lib/storage";
 import type { Walkthrough } from "@/lib/walkthroughs";
 import { FeedbackPanel } from "./FeedbackPanel";
 import { PlanToDraftExample } from "./PlanToDraftExample";
+import { TryComparison } from "./TryComparison";
 
 export interface StudioTask {
   id: string;
@@ -42,7 +45,8 @@ function countWords(text: string) {
 
 export function WritingStudio({ task }: { task: StudioTask }) {
   const auth = useAuthStatus();
-  const [profile] = useProfile();
+  const profile = useProfile();
+  const worksLoading = useWorksLoading();
   const saveStatus = useSaveStatus();
   const stored = useWork(task.id);
   const work: Work = stored ?? {
@@ -68,6 +72,8 @@ export function WritingStudio({ task }: { task: StudioTask }) {
   const hasOutline = work.outline.some((l) => l?.trim());
   const latest = work.drafts.at(-1);
   const unchangedSinceFeedback = latest?.text === work.text;
+  const triesUsed = work.drafts.length;
+  const outOfTries = triesUsed >= MAX_TRIES;
 
   async function getFeedback() {
     if (!profile) return;
@@ -79,6 +85,7 @@ export function WritingStudio({ task }: { task: StudioTask }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          childId: getActiveChildId(),
           taskKey: task.id,
           lessonSlug: task.lessonSlug,
           title: task.title,
@@ -110,23 +117,41 @@ export function WritingStudio({ task }: { task: StudioTask }) {
       </p>
     );
   }
-  if (auth === "signed-out" || !profile) {
+  if (auth === "signed-out") {
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-6 text-center">
         <h2 className="text-lg font-semibold">Ready to write?</h2>
         <p className="mt-1 text-slate-600">
-          Log in so your writing is saved and your coach can give you feedback.
+          A parent or guardian logs in, then you pick your profile. Your writing is saved and your
+          coach gives you feedback.
         </p>
-        <div className="mt-4 flex justify-center gap-3">
+        <div className="mt-4 flex flex-wrap justify-center gap-3">
           <Link href="/login" className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700">
             Log in
           </Link>
           <Link href="/signup" className="rounded-lg border border-slate-300 px-4 py-2 font-medium hover:bg-slate-50">
-            Create account
+            Parents: create a family account
           </Link>
         </div>
       </div>
     );
+  }
+  if (!profile) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-6 text-center">
+        <h2 className="text-lg font-semibold">Who&apos;s writing today?</h2>
+        <p className="mt-1 text-slate-600">Pick your profile so your writing is saved to the right place.</p>
+        <Link
+          href="/profiles"
+          className="mt-4 inline-block rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700"
+        >
+          Choose profile
+        </Link>
+      </div>
+    );
+  }
+  if (worksLoading) {
+    return <div className="h-40 animate-pulse rounded-xl bg-slate-100" />;
   }
 
   return (
@@ -267,18 +292,35 @@ export function WritingStudio({ task }: { task: StudioTask }) {
               </span>
               <button
                 onClick={getFeedback}
-                disabled={loading || words < 5 || unchangedSinceFeedback}
+                disabled={loading || words < 5 || unchangedSinceFeedback || outOfTries}
                 className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {loading
                   ? "Reading your writing…"
-                  : latest
-                    ? "Get feedback on revision"
-                    : "Get feedback"}
+                  : outOfTries
+                    ? `All ${MAX_TRIES} tries used`
+                    : `Get feedback · try ${triesUsed + 1} of ${MAX_TRIES}`}
               </button>
             </div>
-            {unchangedSinceFeedback && (
-              <p className="text-right text-xs text-slate-500">Make some changes to get new feedback.</p>
+            {outOfTries ? (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+                <b>You finished all {MAX_TRIES} tries on this piece!</b> Look at how your scores changed, then
+                use what you learned on a new piece:{" "}
+                <Link href="/write" className="font-medium underline">
+                  today&apos;s prompt
+                </Link>{" "}
+                or{" "}
+                <Link href="/lessons" className="font-medium underline">
+                  another lesson
+                </Link>
+                .
+              </div>
+            ) : (
+              unchangedSinceFeedback && (
+                <p className="text-right text-xs text-slate-500">
+                  Make some changes, then get feedback again to see your new score.
+                </p>
+              )
             )}
             {error && <p className="rounded-lg bg-red-50 p-2 text-sm text-red-700">{error}</p>}
           </section>
@@ -287,8 +329,8 @@ export function WritingStudio({ task }: { task: StudioTask }) {
             {step === "Revise" && (
               <StepIntro n={4} title="Make it better">
                 Read your coach&apos;s feedback, then <b>change your writing in the box</b> — add,
-                cut or reword. Tick the checklist as you go, then ask for feedback again to see how
-                you improved.
+                cut or reword. Tick the checklist as you go, then get feedback again to see how your
+                score changes. You have {MAX_TRIES - triesUsed} of {MAX_TRIES} tries left.
               </StepIntro>
             )}
             {step === "Revise" && (
@@ -318,18 +360,23 @@ export function WritingStudio({ task }: { task: StudioTask }) {
               </div>
             )}
 
+            {step === "Revise" && <TryComparison drafts={work.drafts} />}
+
             {latest?.feedback ? (
               <div className="rounded-xl border border-slate-200 bg-white p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <h3 className="font-semibold">Coach feedback</h3>
-                  <span className="text-xs text-slate-500">Draft {work.drafts.length}</span>
+                  <span className="text-xs text-slate-500">
+                    Try {triesUsed} of {MAX_TRIES}
+                  </span>
                 </div>
                 <FeedbackPanel feedback={latest.feedback} />
               </div>
             ) : (
               <div className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">
-                When your draft is ready, click <b>Get feedback</b>. Your coach will point out what&apos;s
-                working and give you one or two things to improve — then it&apos;s your turn to revise.
+                When your draft is ready, click <b>Get feedback</b>. Your coach will score it and give you
+                one or two things to improve. You get {MAX_TRIES} tries on each piece, so revise and
+                watch your score change!
               </div>
             )}
           </aside>

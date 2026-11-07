@@ -17,7 +17,8 @@ export interface Lesson {
   example: { weak: string; strong: string; why: string };
   /** The writing task the student practises right after the lesson. */
   practice: {
-    prompt: string;
+    /** Topics to practise this skill on. The first is the default; students can pick another for each new piece. */
+    topics: string[];
     targetWords: [number, number];
     /** Guiding questions for the Brainstorm and Outline steps. */
     brainstorm: string[];
@@ -65,23 +66,27 @@ export const LESSONS: Lesson[] = [
       why: "The strong version names the topic (recess), takes a position (it should be longer), and hints at the reason the paragraph will explain.",
     },
     practice: {
-      prompt:
+      topics: [
         "Write one paragraph about a place you love to spend time. Start with a strong topic sentence, then add 3–4 sentences that support it.",
+        "Write one paragraph about your favorite season. Start with a strong topic sentence that says why it's your favorite, then support it.",
+        "Write one paragraph about a person who inspires you. Start with a strong topic sentence, then add 3–4 sentences that support it.",
+        "Write one paragraph about a hobby or activity you enjoy. Start with a strong topic sentence, then add 3–4 supporting sentences.",
+      ],
       targetWords: [80, 150],
       brainstorm: [
-        "What place do you love? Where is it?",
-        "What do you see, hear and feel there?",
-        "Why does this place matter to you?",
+        "What is your topic? What is the ONE main point you want to make about it?",
+        "What details, examples or senses (see, hear, feel) support that point?",
+        "Why does this matter to you?",
       ],
       outline: [
-        "Topic sentence: place + why it's special",
+        "Topic sentence: topic + your main point",
         "Detail 1",
         "Detail 2",
         "Detail 3",
         "Closing sentence that echoes the topic sentence",
       ],
       checklist: [
-        "My first sentence names the place AND why it's special.",
+        "My first sentence names my topic AND my main point about it.",
         "Every other sentence supports that idea.",
         "I used at least one sense detail (sight, sound, smell, touch, taste).",
         "My last sentence wraps up the paragraph.",
@@ -118,8 +123,12 @@ export const LESSONS: Lesson[] = [
       why: "The strong version never says \"excited\" — the early wake-up, sneaking and checking the oven let the reader feel it.",
     },
     practice: {
-      prompt:
+      topics: [
         "Write a short scene (one or two paragraphs) about a moment when you felt surprised, scared or proud. Don't name the feeling — show it.",
+        "Write a short scene about a time you felt really nervous — before a test, a game or a performance. Show the feeling without naming it.",
+        "Write a short scene about a moment you felt really happy. Don't use the word “happy” — show it through actions and senses.",
+        "Write a short scene about a time something didn't go the way you hoped. Show the disappointment without naming it.",
+      ],
       targetWords: [120, 250],
       brainstorm: [
         "Which moment will you write about?",
@@ -170,8 +179,12 @@ export const LESSONS: Lesson[] = [
       why: "The strong version gives two different reasons, uses transition words (First, Second), and adds an example to each.",
     },
     practice: {
-      prompt:
+      topics: [
         "Should students be allowed to choose their own seats in class? Write a persuasive paragraph with your opinion and at least two reasons.",
+        "Should students wear school uniforms? Write a persuasive paragraph with your opinion and at least two reasons.",
+        "Should kids your age be allowed to have their own phone? Write a persuasive paragraph with your opinion and at least two reasons.",
+        "Should every school have a pet in the classroom? Write a persuasive paragraph with your opinion and at least two reasons.",
+      ],
       targetWords: [120, 220],
       brainstorm: [
         "What is your opinion?",
@@ -222,8 +235,12 @@ export const LESSONS: Lesson[] = [
       why: "The strong version uses order words, exact amounts and actions, and a logical sequence.",
     },
     practice: {
-      prompt:
+      topics: [
         "Explain how to do something you're good at (a game, a recipe, a sport move, a craft) so a beginner could follow it.",
+        "Explain how to make your favorite snack so someone who has never made it could follow along.",
+        "Explain how to take care of a pet (real or one you'd like to have) so a first-time owner could do it.",
+        "Explain how to get ready for school in the morning so a younger kid could follow your steps.",
+      ],
       targetWords: [120, 220],
       brainstorm: [
         "What will you explain?",
@@ -273,8 +290,12 @@ export const LESSONS: Lesson[] = [
       why: "The strong version starts in the middle of the action and makes the reader ask \"What happened next?\"",
     },
     practice: {
-      prompt:
+      topics: [
         "Write the opening of a true or made-up story (one to two paragraphs). Try a hook that starts with action or dialogue.",
+        "Write the opening of a story about a surprising discovery. Start with a hook that makes the reader curious.",
+        "Write the opening of a true story about a time something went wrong. Start in the middle of the action.",
+        "Write the opening of a made-up story about a door that wasn't there yesterday. Hook the reader in the first sentence.",
+      ],
       targetWords: [150, 280],
       brainstorm: [
         "What is the story about?",
@@ -328,8 +349,12 @@ export const LESSONS: Lesson[] = [
       why: "The strong version has a specific claim, real evidence, reasoning that connects the two, and a counterclaim with a response.",
     },
     practice: {
-      prompt:
+      topics: [
         "Should middle schools require students to learn a musical instrument? Write an argument paragraph using claim, evidence, reasoning and a counterclaim.",
+        "Should schools switch to a year-round calendar with shorter breaks? Write an argument paragraph using claim, evidence, reasoning and a counterclaim.",
+        "Should competitive video gaming count as a school sport? Write an argument paragraph using claim, evidence, reasoning and a counterclaim.",
+        "Should students be allowed to give anonymous feedback on their classes? Write an argument paragraph using claim, evidence, reasoning and a counterclaim.",
+      ],
       targetWords: [180, 320],
       brainstorm: [
         "What's your claim?",
@@ -381,12 +406,16 @@ export const LESSONS: Lesson[] = [
       why: "The strong version combines choppy sentences, varies openers, and ends with a short sentence that lands like a punchline.",
     },
     practice: {
-      prompt:
+      topics: [
         "Describe a busy place (a cafeteria, a market, a game, a train station) in one paragraph. Use at least one long sentence, one very short sentence, and three different sentence openers.",
+        "Describe a thunderstorm in one paragraph. Use at least one long sentence, one very short sentence, and three different sentence openers.",
+        "Describe a busy morning at home in one paragraph. Use at least one long sentence, one very short sentence, and three different sentence openers.",
+        "Describe the last minute of an exciting game or race in one paragraph. Use at least one long sentence, one very short sentence, and three different sentence openers.",
+      ],
       targetWords: [120, 220],
       brainstorm: [
-        "Which place will you describe?",
-        "What's happening there? List sounds, smells and movements.",
+        "What scene will you describe?",
+        "What's happening? List sounds, smells and movements.",
         "What's one surprising detail?",
       ],
       outline: [
@@ -432,8 +461,12 @@ export const LESSONS: Lesson[] = [
       why: "The strong version has a thesis, uses point-by-point comparison, and uses signal words to guide the reader.",
     },
     practice: {
-      prompt:
+      topics: [
         "Compare and contrast two things you know well (two sports, two games, two seasons, city vs. countryside). Write two paragraphs with a clear thesis.",
+        "Compare and contrast summer vacation and the school year. Write two paragraphs with a clear thesis.",
+        "Compare and contrast cats and dogs as pets. Write two paragraphs with a clear thesis.",
+        "Compare and contrast playing a game in person and playing it online. Write two paragraphs with a clear thesis.",
+      ],
       targetWords: [200, 350],
       brainstorm: [
         "Which two things will you compare?",

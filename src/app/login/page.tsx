@@ -16,14 +16,18 @@ export default function LoginPage() {
 
 function LoginForm() {
   const router = useRouter();
-  const confirmFailed = useSearchParams().get("error") === "confirm";
+  const params = useSearchParams();
+  const confirmFailed = params.get("error") === "confirm";
+  const nextParam = params.get("next");
+  // Only allow same-site paths (no "//evil.com" redirects).
+  const next = nextParam && /^\/(?!\/)/.test(nextParam) ? nextParam : "/profiles";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   return (
-    <AuthCard title="Log in">
+    <AuthCard title="Parent log in">
       {confirmFailed && (
         <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
           That confirmation link has expired or was already used. If you&apos;ve confirmed your email
@@ -39,7 +43,7 @@ function LoginForm() {
           const { error } = await createClient().auth.signInWithPassword({ email, password });
           setBusy(false);
           if (error) return setError(error.message);
-          router.push("/lessons");
+          router.push(next);
           router.refresh();
         }}
       >
@@ -59,7 +63,7 @@ function LoginForm() {
       <p className="mt-6 text-center text-sm text-slate-600">
         New here?{" "}
         <Link href="/signup" className="font-medium text-indigo-700 hover:underline">
-          Create an account
+          Create a family account
         </Link>
       </p>
     </AuthCard>

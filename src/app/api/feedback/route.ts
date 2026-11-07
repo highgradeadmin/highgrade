@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
-import { FeedbackRequestSchema, FeedbackSchema, type Feedback } from "@/lib/feedback";
+import { FeedbackRequestSchema, FeedbackSchema, MAX_TRIES, type Feedback } from "@/lib/feedback";
 import { createClient } from "@/lib/supabase/server";
 import { TRAITS } from "@/lib/traits";
 
@@ -50,12 +50,23 @@ export async function POST(request: Request) {
   }
   const req = parsed.data;
 
-  // ── Daily limit (protects the API bill) ──
+  // ── Which child is writing? (RLS only returns this parent's children) ──
+  const { data: child, error: childError } = await supabase
+    .from("children")
+    .select("id, grade")
+    .eq("id", req.childId)
+    .maybeSingle();
+  if (childError) return dbError(childError);
+  if (!child) {
+    return Response.json({ error: "Choose who's writing first." }, { status: 403 });
+  }
+
+  // ── Daily limit per child (protects the API bill) ──
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { count, error: countError } = await supabase
     .from("drafts")
     .select("id", { count: "exact", head: true })
-    .eq("user_id", userId)
+    .eq("child_id", child.id)
     .gte("created_at", since);
   if (countError) return dbError(countError);
   if ((count ?? 0) >= DAILY_LIMIT) {
@@ -65,19 +76,12 @@ export async function POST(request: Request) {
     );
   }
 
-  // ── Student grade comes from their profile, not the request ──
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("grade")
-    .eq("id", userId)
-    .single();
-  if (profileError) return dbError(profileError);
-
   // ── Save the current text and find the previous draft ──
   const { data: work, error: workError } = await supabase
     .from("works")
     .upsert(
       {
+        child_id: child.id,
         task_key: req.taskKey,
         lesson_slug: req.lessonSlug,
         title: req.title,
@@ -86,25 +90,34 @@ export async function POST(request: Request) {
         text: req.text,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "user_id,task_key" },
+      { onConflict: "child_id,task_key" },
     )
     .select("id")
     .single();
   if (workError) return dbError(workError);
 
-  const { data: previous } = await supabase
+  // ── Tries on this piece (MAX_TRIES rounds of feedback per piece) ──
+  const { data: previous, count: triesUsed, error: triesError } = await supabase
     .from("drafts")
-    .select("text")
+    .select("text", { count: "exact" })
     .eq("work_id", work.id)
     .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const previousText: string | undefined = previous?.text;
+    .limit(1);
+  if (triesError) return dbError(triesError);
+  if ((triesUsed ?? 0) >= MAX_TRIES) {
+    return Response.json(
+      { error: `You've used all ${MAX_TRIES} tries on this piece. Look back at how your scores changed, then try a new lesson or today's prompt!` },
+      { status: 409 },
+    );
+  }
+  const tryNumber = (triesUsed ?? 0) + 1;
+  const previousText: string | undefined = previous?.[0]?.text;
 
   const userMessage = [
-    `Grade: ${profile.grade}`,
+    `Grade: ${child.grade}`,
     `Type of writing: ${req.genre}`,
     `Assignment: ${req.prompt}`,
+    `This is try ${tryNumber} of ${MAX_TRIES} on this piece.${tryNumber === MAX_TRIES ? " It is the final try: celebrate what improved across the tries and give one takeaway to carry into the next piece of writing." : ""}`,
     req.focus.length ? `Lesson focus traits: ${req.focus.join(", ")}` : null,
     req.checklist.length
       ? `The student was given this revision checklist:\n${req.checklist.map((c) => `- ${c}`).join("\n")}`
@@ -131,6 +144,9 @@ export async function POST(request: Request) {
       messages: [{ role: "user", content: userMessage }],
     });
 
+    // Record token usage for the admin dashboard (never blocks the student's feedback).
+    await logUsage(supabase, userId, child.id, work.id, response.model, response.usage);
+
     if (response.stop_reason === "refusal" || !response.parsed_output) {
       return Response.json(
         { error: "We couldn't generate feedback for this piece. Try revising it and submitting again." },
@@ -141,7 +157,7 @@ export async function POST(request: Request) {
     const feedback = normalize(response.parsed_output);
     const { data: draft, error: draftError } = await supabase
       .from("drafts")
-      .insert({ work_id: work.id, user_id: userId, text: req.text, feedback })
+      .insert({ work_id: work.id, child_id: child.id, parent_id: userId, text: req.text, feedback })
       .select("created_at")
       .single();
     if (draftError) return dbError(draftError);
@@ -160,6 +176,48 @@ export async function POST(request: Request) {
     }
     throw err;
   }
+}
+
+type ServerClient = Awaited<ReturnType<typeof createClient>>;
+type Usage = Anthropic.Beta.Messages.BetaUsage;
+
+/** One row per model that ran (a fallback model can serve part of a request). */
+async function logUsage(
+  supabase: ServerClient,
+  parentId: string,
+  childId: string,
+  workId: string,
+  model: string,
+  usage: Usage,
+) {
+  const perModel = (usage.iterations ?? []).flatMap((it) =>
+    it.type === "message" || it.type === "fallback_message"
+      ? [
+          {
+            model: it.model ?? model,
+            input_tokens: it.input_tokens,
+            output_tokens: it.output_tokens,
+            cache_read_tokens: it.cache_read_input_tokens ?? 0,
+            cache_write_tokens: it.cache_creation_input_tokens ?? 0,
+          },
+        ]
+      : [],
+  );
+  const rows = perModel.length
+    ? perModel
+    : [
+        {
+          model,
+          input_tokens: usage.input_tokens,
+          output_tokens: usage.output_tokens,
+          cache_read_tokens: usage.cache_read_input_tokens ?? 0,
+          cache_write_tokens: usage.cache_creation_input_tokens ?? 0,
+        },
+      ];
+  const { error } = await supabase
+    .from("ai_usage")
+    .insert(rows.map((r) => ({ ...r, parent_id: parentId, child_id: childId, work_id: workId })));
+  if (error) console.error("Usage logging failed", error.message);
 }
 
 function dbError(error: { message: string }) {

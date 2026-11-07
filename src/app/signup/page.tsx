@@ -4,45 +4,47 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { AuthCard, buttonClass, inputClass } from "@/components/AuthCard";
-import { GradeSelect } from "@/components/GradePicker";
 import { createClient } from "@/lib/supabase/client";
 
 const THIS_YEAR = new Date().getFullYear();
+// Adults only: the youngest selectable birth year is 18 years ago.
+const YEARS = Array.from({ length: 83 }, (_, i) => THIS_YEAR - 18 - i);
 
 export default function SignupPage() {
   const router = useRouter();
   const [name, setName] = useState("");
-  const [grade, setGrade] = useState(5);
   const [birthYear, setBirthYear] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [parentEmail, setParentEmail] = useState("");
-  const [parentAgreed, setParentAgreed] = useState(false);
+  const [isAdult, setIsAdult] = useState(false);
+  const [consent, setConsent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkEmail, setCheckEmail] = useState(false);
   const [busy, setBusy] = useState(false);
-
-  // Conservative: treat as under 13 if they could still be 12 this year.
-  const under13 = birthYear !== "" && THIS_YEAR - Number(birthYear) <= 13;
 
   if (checkEmail) {
     return (
       <AuthCard title="Check your email">
         <p className="text-slate-700">
-          We sent a confirmation link to <b>{email}</b>. Click it to finish creating your account.
+          We sent a confirmation link to <b>{email}</b>. Click it to finish creating your family account,
+          then you&apos;ll set a parent PIN and add your children.
         </p>
       </AuthCard>
     );
   }
 
   return (
-    <AuthCard title="Create your account">
+    <AuthCard title="Create a family account">
+      <p className="-mt-3 mb-5 text-sm text-slate-600">
+        For parents and guardians. You&apos;ll add your children&apos;s profiles next — children don&apos;t need
+        their own email or password.
+      </p>
       <form
         className="space-y-4"
         onSubmit={async (e) => {
           e.preventDefault();
-          if (under13 && !parentAgreed) {
-            return setError("A parent or guardian needs to agree before you can sign up.");
+          if (!isAdult || !consent) {
+            return setError("Please confirm both boxes to continue.");
           }
           setBusy(true);
           setError(null);
@@ -51,66 +53,44 @@ export default function SignupPage() {
             password,
             options: {
               emailRedirectTo: `${window.location.origin}/auth/confirm`,
-              data: {
-                name: name.trim(),
-                grade,
-                birth_year: Number(birthYear),
-                parent_email: under13 ? parentEmail.trim() : null,
-              },
+              data: { name: name.trim(), birth_year: Number(birthYear), parent_consent: true },
             },
           });
           setBusy(false);
-          if (error) return setError(error.message);
+          if (error) {
+            return setError(
+              /database error/i.test(error.message)
+                ? "Only parents or guardians aged 18 or older can create an account."
+                : error.message,
+            );
+          }
           if (data.session) {
-            router.push("/lessons");
+            router.push("/parent");
             router.refresh();
           } else {
             setCheckEmail(true);
           }
         }}
       >
-        <div className="grid grid-cols-2 gap-3">
-          <label className="block">
-            <span className="text-sm font-medium">First name</span>
-            <input required maxLength={40} className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
-          </label>
-          <label className="block">
-            <span className="text-sm font-medium">Grade</span>
-            <GradeSelect value={grade} onChange={setGrade} />
-          </label>
-        </div>
         <label className="block">
-          <span className="text-sm font-medium">Birth year</span>
+          <span className="text-sm font-medium">Your name</span>
+          <input required maxLength={60} autoComplete="name" className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium">Your birth year</span>
           <select required className={inputClass} value={birthYear} onChange={(e) => setBirthYear(e.target.value)}>
             <option value="" disabled>
               Select…
             </option>
-            {Array.from({ length: 70 }, (_, i) => THIS_YEAR - 8 - i).map((y) => (
+            {YEARS.map((y) => (
               <option key={y} value={y}>
                 {y}
               </option>
             ))}
           </select>
         </label>
-
-        {under13 && (
-          <div className="space-y-3 rounded-lg border border-sky-200 bg-sky-50 p-3">
-            <p className="text-sm text-sky-900">
-              Because you&apos;re under 13, a parent or guardian needs to be part of this.
-            </p>
-            <label className="block">
-              <span className="text-sm font-medium">Parent or guardian&apos;s email</span>
-              <input type="email" required className={inputClass} value={parentEmail} onChange={(e) => setParentEmail(e.target.value)} />
-            </label>
-            <label className="flex gap-2 text-sm">
-              <input type="checkbox" className="mt-0.5" checked={parentAgreed} onChange={(e) => setParentAgreed(e.target.checked)} />
-              My parent or guardian is with me and agrees to me creating an account.
-            </label>
-          </div>
-        )}
-
         <label className="block">
-          <span className="text-sm font-medium">{under13 ? "Email (yours or your parent's)" : "Email"}</span>
+          <span className="text-sm font-medium">Email</span>
           <input type="email" required autoComplete="email" className={inputClass} value={email} onChange={(e) => setEmail(e.target.value)} />
         </label>
         <label className="block">
@@ -127,9 +107,24 @@ export default function SignupPage() {
           <span className="text-xs text-slate-500">At least 8 characters.</span>
         </label>
 
+        <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+          <label className="flex gap-2">
+            <input type="checkbox" className="mt-0.5" checked={isAdult} onChange={(e) => setIsAdult(e.target.checked)} />
+            <span>I am 18 or older and the parent or legal guardian of the children I will add.</span>
+          </label>
+          <label className="flex gap-2">
+            <input type="checkbox" className="mt-0.5" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
+            <span>
+              I agree to HighGrade storing my children&apos;s first names, grades and writing, and sending their
+              writing to our AI provider (Anthropic) to generate feedback. I can remove a child&apos;s profile and
+              writing at any time.
+            </span>
+          </label>
+        </div>
+
         {error && <p className="rounded-lg bg-red-50 p-2 text-sm text-red-700">{error}</p>}
         <button disabled={busy} className={buttonClass}>
-          {busy ? "Creating account…" : "Create account"}
+          {busy ? "Creating account…" : "Create family account"}
         </button>
       </form>
       <p className="mt-6 text-center text-sm text-slate-600">

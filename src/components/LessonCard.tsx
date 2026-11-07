@@ -2,11 +2,21 @@
 
 import Link from "next/link";
 import { GENRE_LABELS, type Lesson } from "@/lib/lessons";
-import { useWork } from "@/lib/storage";
+import { useAllWorkMap } from "@/lib/storage";
+import { piecesFor, pieceKey } from "./LessonPractice";
 
 export function LessonCard({ lesson }: { lesson: Lesson }) {
-  const work = useWork(`lesson:${lesson.slug}`);
-  const status = work?.drafts.length ? "Feedback received" : work?.text ? "In progress" : null;
+  const works = useAllWorkMap();
+  const pieces = piecesFor(lesson.slug, Object.keys(works));
+  const latest = pieces.length ? works[pieceKey(lesson.slug, pieces[pieces.length - 1])] : undefined;
+  const status =
+    pieces.length > 1
+      ? `${pieces.length} pieces written`
+      : latest?.drafts.length
+        ? "Feedback received"
+        : latest?.text
+          ? "In progress"
+          : null;
 
   return (
     <Link

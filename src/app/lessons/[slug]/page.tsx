@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { WritingStudio } from "@/components/WritingStudio";
+import { LessonPractice } from "@/components/LessonPractice";
 import { GENRE_LABELS, getLesson, LESSONS } from "@/lib/lessons";
 import { traitName } from "@/lib/traits";
 import { LESSON_WALKTHROUGHS } from "@/lib/walkthroughs";
@@ -61,12 +61,11 @@ export default async function LessonPage(props: PageProps<"/lessons/[slug]">) {
 
       <section>
         <h2 className="mb-3 text-xl font-bold">Your turn</h2>
-        <WritingStudio
-          task={{
-            id: `lesson:${lesson.slug}`,
+        <LessonPractice
+          topics={lesson.practice.topics}
+          base={{
             lessonSlug: lesson.slug,
-            title: lesson.title,
-            prompt: lesson.practice.prompt,
+            lessonTitle: lesson.title,
             genre: lesson.genre,
             focus: lesson.focusTraits,
             targetWords: lesson.practice.targetWords,
