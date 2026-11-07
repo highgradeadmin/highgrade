@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { GradeSelect } from "@/components/GradePicker";
 import type { Feedback } from "@/lib/feedback";
+import { LEVELS, levelLabel } from "@/lib/lessons";
 import { metricValue } from "@/lib/performance";
+import { levelProgress, type PieceLike } from "@/lib/proficiency";
 import {
   addChild,
   deleteChild,
@@ -170,6 +172,8 @@ function PinGate() {
 // ─── Dashboard ──────────────────────────────────────────────────────────────
 
 interface ChildStats {
+  /** task_key → piece, for proficiency. */
+  works: Record<string, PieceLike>;
   pieces: number;
   tries: number;
   latestScore: number | null;
@@ -183,17 +187,19 @@ function useChildStats(children: Child[]) {
     let cancelled = false;
     createClient()
       .from("works")
-      .select("child_id, updated_at, drafts(feedback, created_at)")
+      .select("child_id, task_key, updated_at, drafts(feedback, created_at)")
       .then(({ data }) => {
         if (cancelled) return;
         const out: Record<string, ChildStats> = {};
         const rows = (data ?? []) as {
           child_id: string;
+          task_key: string;
           updated_at: string;
           drafts: { feedback: Feedback | null; created_at: string }[];
         }[];
         for (const r of rows) {
-          const s = (out[r.child_id] ??= { pieces: 0, tries: 0, latestScore: null, lastActive: null });
+          const s = (out[r.child_id] ??= { works: {}, pieces: 0, tries: 0, latestScore: null, lastActive: null });
+          s.works[r.task_key] = { drafts: r.drafts };
           s.pieces += 1;
           s.tries += r.drafts.length;
           if (!s.lastActive || r.updated_at > s.lastActive) s.lastActive = r.updated_at;
@@ -297,6 +303,8 @@ function ChildCard({ child, stats, onOpen }: { child: Child; stats?: ChildStats;
   const [mode, setMode] = useState<"view" | "edit" | "remove">("view");
   const [name, setName] = useState(child.name);
   const [grade, setGrade] = useState(child.grade);
+  const [level, setLevel] = useState(child.level);
+  const progress = levelProgress(child.level, stats?.works ?? {});
   const [confirmText, setConfirmText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -308,7 +316,9 @@ function ChildCard({ child, stats, onOpen }: { child: Child; stats?: ChildStats;
           <div className="flex items-start justify-between gap-2">
             <div>
               <p className="text-lg font-semibold">{child.name}</p>
-              <p className="text-sm text-slate-500">Grade {child.grade}</p>
+              <p className="text-sm text-slate-500">
+                Grade {child.grade} · Level {levelLabel(child.level)}
+              </p>
             </div>
             {stats?.latestScore != null && (
               <p className="text-right">
@@ -317,6 +327,20 @@ function ChildCard({ child, stats, onOpen }: { child: Child; stats?: ChildStats;
                 <span className="block text-xs text-slate-500">recent average</span>
               </p>
             )}
+          </div>
+          <div className="mt-3">
+            <div className="flex justify-between text-xs text-slate-600">
+              <span>{levelLabel(child.level)} lessons proficient</span>
+              <span>
+                {progress.proficient} of {progress.total}
+              </span>
+            </div>
+            <div className="mt-1 h-2 overflow-hidden rounded-full bg-indigo-100">
+              <div
+                className="h-2 rounded-full bg-indigo-600"
+                style={{ width: `${progress.total ? (progress.proficient / progress.total) * 100 : 0}%` }}
+              />
+            </div>
           </div>
           <p className="mt-2 text-sm text-slate-600">
             {stats ? (
@@ -349,7 +373,7 @@ function ChildCard({ child, stats, onOpen }: { child: Child; stats?: ChildStats;
           onSubmit={async (e) => {
             e.preventDefault();
             setBusy(true);
-            const res = await updateChild(child.id, name.trim(), grade);
+            const res = await updateChild(child.id, name.trim(), grade, level);
             setBusy(false);
             if (!res.ok) return setError(res.error);
             setMode("view");
@@ -362,6 +386,19 @@ function ChildCard({ child, stats, onOpen }: { child: Child; stats?: ChildStats;
           <label className="block">
             <span className="text-sm font-medium">Grade</span>
             <GradeSelect value={grade} onChange={setGrade} />
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium">Lesson level</span>
+            <select className={input} value={level} onChange={(e) => setLevel(e.target.value)}>
+              {LEVELS.map((l) => (
+                <option key={l.band} value={l.band}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs text-slate-500">
+              Move {child.name} up (or back) a level. Their writing and scores are kept.
+            </span>
           </label>
           {error && <p className="text-sm text-red-700">{error}</p>}
           <div className="flex gap-2">

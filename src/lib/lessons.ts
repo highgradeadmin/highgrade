@@ -28,6 +28,25 @@ export interface Lesson {
   };
 }
 
+/** Lesson levels in order. Children work on one level at a time. */
+export const LEVELS: { band: GradeBand; label: string }[] = [
+  { band: "5-6", label: "Grades 5–6" },
+  { band: "7-8", label: "Grades 7–8" },
+];
+
+export function levelIndex(band: string): number {
+  const i = LEVELS.findIndex((l) => l.band === band);
+  return i === -1 ? LEVELS.length - 1 : i;
+}
+
+export function levelLabel(band: string): string {
+  return LEVELS[levelIndex(band)].label;
+}
+
+export function nextLevel(band: string) {
+  return LEVELS[levelIndex(band) + 1] ?? null;
+}
+
 export const GENRE_LABELS: Record<Genre, string> = {
   paragraph: "Paragraphs",
   narrative: "Narrative",

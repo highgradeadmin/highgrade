@@ -62,6 +62,7 @@ export default async function LessonPage(props: PageProps<"/lessons/[slug]">) {
       <section>
         <h2 className="mb-3 text-xl font-bold">Your turn</h2>
         <LessonPractice
+          band={lesson.grade}
           topics={lesson.practice.topics}
           base={{
             lessonSlug: lesson.slug,

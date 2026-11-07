@@ -2,7 +2,13 @@
 
 import { useState } from "react";
 import { MAX_TRIES } from "@/lib/feedback";
-import { saveWork, useAllWorkMap, useAuthStatus } from "@/lib/storage";
+import Link from "next/link";
+import { levelIndex, levelLabel } from "@/lib/lessons";
+import { lessonResult, PROFICIENT_SCORE } from "@/lib/proficiency";
+import { saveWork, useActiveChild, useAllWorkMap, useAuthStatus } from "@/lib/storage";
+import type { TraitId } from "@/lib/traits";
+import { traitName } from "@/lib/traits";
+import { ProficiencyBadge } from "./ProficiencyBadge";
 import { WritingStudio, type StudioTask } from "./WritingStudio";
 
 /** Piece 1 keeps the original key so existing work is preserved. */
@@ -28,9 +34,10 @@ type BaseTask = Omit<StudioTask, "id" | "prompt" | "title" | "lessonSlug"> & {
  * Lets a student practise one lesson's skill on several pieces of writing,
  * each on its own topic with its own tries. Earlier pieces stay viewable.
  */
-export function LessonPractice({ base, topics }: { base: BaseTask; topics: string[] }) {
+export function LessonPractice({ base, topics, band }: { base: BaseTask; topics: string[]; band: string }) {
   const works = useAllWorkMap();
   const auth = useAuthStatus();
+  const child = useActiveChild();
   const slug = base.lessonSlug;
   const pieces = piecesFor(slug, Object.keys(works));
   const latest = pieces.length ? pieces[pieces.length - 1] : 1;
@@ -74,8 +81,51 @@ export function LessonPractice({ base, topics }: { base: BaseTask; topics: strin
     setOwnTopic("");
   }
 
+  const focus = base.focus as TraitId[];
+  const result = lessonResult({ slug, focusTraits: focus }, works);
+  const locked = child !== null && levelIndex(band) > levelIndex(child.level);
+
+  if (locked) {
+    return (
+      <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+        <p className="text-lg font-semibold">🔒 This lesson is in {levelLabel(band)}</p>
+        <p className="mt-1 text-slate-600">
+          {child.name} is working on {levelLabel(child.level)}. It unlocks when every {levelLabel(child.level)}{" "}
+          lesson is proficient, or a parent can move {child.name} up in the parent area.
+        </p>
+        <Link
+          href="/lessons"
+          className="mt-4 inline-block rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700"
+        >
+          Go to {child.name}&apos;s lessons
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
+      {child && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-sm">
+          <ProficiencyBadge status={result.status} size="md" />
+          <span className="text-slate-700">
+            {result.status === "proficient" ? (
+              <>Great work — you showed this skill! Practise more topics any time, or move on to another lesson.</>
+            ) : result.best ? (
+              <>
+                To be proficient, get{" "}
+                <b>{(result.toImprove.length ? result.toImprove : focus.map(traitName)).join(" and ")}</b> to{" "}
+                {PROFICIENT_SCORE} or more in one try.
+              </>
+            ) : (
+              <>
+                You&apos;re proficient when <b>{focus.map(traitName).join(" and ")}</b> each score{" "}
+                {PROFICIENT_SCORE}+ in one try.
+              </>
+            )}
+          </span>
+        </div>
+      )}
       {auth === "ready" && (pieces.length > 1 || canStartNew) && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3">
           {pieces.length > 1 ? (

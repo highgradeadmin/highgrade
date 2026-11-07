@@ -15,6 +15,8 @@ export interface Child {
   name: string;
   grade: number;
   birthYear: number | null;
+  /** Lesson level band, e.g. "5-6". */
+  level: string;
 }
 
 /** The active child's profile (what the writing pages need). */
@@ -132,14 +134,14 @@ function start() {
   });
 }
 
-function toChild(r: { id: string; name: string; grade: number; birth_year: number | null }): Child {
-  return { id: r.id, name: r.name, grade: r.grade, birthYear: r.birth_year };
+function toChild(r: { id: string; name: string; grade: number; birth_year: number | null; level: string }): Child {
+  return { id: r.id, name: r.name, grade: r.grade, birthYear: r.birth_year, level: r.level };
 }
 
 async function fetchChildren(): Promise<Child[]> {
   const { data } = await createClient()
     .from("children")
-    .select("id, name, grade, birth_year")
+    .select("id, name, grade, birth_year, level")
     .order("created_at", { ascending: true });
   return (data ?? []).map(toChild);
 }
@@ -446,10 +448,18 @@ export function addChild(name: string, grade: number, birthYear: number | null) 
   );
 }
 
-export function updateChild(id: string, name: string, grade: number) {
+export function updateChild(id: string, name: string, grade: number, level: string) {
   return withPin<boolean>(async (pin) =>
-    createClient().rpc("update_child", { p_pin: pin, p_child: id, p_name: name, p_grade: grade }),
+    createClient().rpc("update_child", { p_pin: pin, p_child: id, p_name: name, p_grade: grade, p_level: level }),
   );
+}
+
+/** Move the active child up one level (offered once every lesson in their level is proficient). */
+export async function advanceChildLevel(childId: string): Promise<string | null> {
+  const { data, error } = await createClient().rpc("advance_child_level", { p_child: childId });
+  if (error || !data) return null;
+  setState({ children: await fetchChildren() });
+  return data as string;
 }
 
 export async function deleteChild(id: string) {
