@@ -70,6 +70,7 @@ export function WritingStudio({ task }: { task: StudioTask }) {
   const [step, setStep] = useState<Step>(work.drafts.length ? "Draft" : "Brainstorm");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeLine, setActiveLine] = useState<number | null>(null);
 
   const update = (patch: Partial<Work>) => saveWork({ ...work, ...patch });
   const words = countWords(work.text);
@@ -81,10 +82,39 @@ export function WritingStudio({ task }: { task: StudioTask }) {
   const latestFeedback = latest?.feedback;
   const hasImproved = Boolean(latestFeedback?.improved_version || latestFeedback?.sentence_makeovers?.length);
 
+  const planLines = task.outline.map((_, i) => work.outline[i]?.trim()).filter((l): l is string => Boolean(l));
+  const planText = planLines.join("\n");
+  const lowerText = work.text.toLowerCase();
+  const planInDraft = planLines.every((l) => lowerText.includes(l.toLowerCase()));
+
+  // Brainstorm notes split into single ideas, so they can be tapped into the plan instead of retyped.
+  const ideas = [
+    ...new Set(
+      Object.values(work.notes)
+        .flatMap((n) => n.split(/[\n,;·•]+/))
+        .map((x) => x.trim())
+        .filter((x) => x.length > 0 && x.length <= 80),
+    ),
+  ];
+  const planLower = work.outline.join(" ").toLowerCase();
+
+  function addIdea(idea: string) {
+    const firstEmpty = task.outline.findIndex((_, i) => !work.outline[i]?.trim());
+    const line = activeLine ?? (firstEmpty === -1 ? task.outline.length - 1 : firstEmpty);
+    const outline = task.outline.map((_, i) => work.outline[i] ?? "");
+    outline[line] = outline[line].trim() ? `${outline[line].trim()}, ${idea}` : idea;
+    update({ outline });
+  }
+
+  /** Puts the plan at the top of the draft box (never deletes anything already written). */
+  function copyPlanIn() {
+    update({ text: work.text.trim() ? `${planText}\n\n${work.text}` : planText });
+  }
+
   /** Moving to Draft with an empty box copies the plan in, so the student edits it into sentences. */
   function goTo(next: Step) {
     if (next === "Draft" && !work.text.trim() && hasOutline) {
-      update({ text: task.outline.map((_, i) => work.outline[i]?.trim()).filter(Boolean).join("\n") });
+      update({ text: planText });
     }
     setStep(next);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
@@ -232,12 +262,44 @@ export function WritingStudio({ task }: { task: StudioTask }) {
             Pick your best ideas and put them in order. <b>A few words</b> on each line.
             <Example>Topic: lake = my happy place · Detail: icy water in July</Example>
           </StepIntro>
+          {ideas.length > 0 && (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3">
+              <p className="text-sm font-semibold text-amber-900">
+                💡 Your ideas — tap one to add it to the {activeLine === null ? "next empty" : "selected"} line
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {ideas.map((idea) => {
+                  const used = planLower.includes(idea.toLowerCase());
+                  return (
+                    <button
+                      key={idea}
+                      type="button"
+                      // Keep the cursor in the line the child picked.
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => addIdea(idea)}
+                      className={`rounded-full border px-3 py-1 text-sm transition ${
+                        used
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          : "border-amber-300 bg-white text-slate-800 hover:bg-amber-100"
+                      }`}
+                    >
+                      {used ? "✓ " : "+ "}
+                      {idea}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {task.outline.map((label, i) => (
             <label key={label} className="block">
               <span className="font-semibold text-slate-800">{label}</span>
               <input
-                className="mt-1 w-full rounded-xl border-2 border-slate-200 bg-white p-2.5 focus:border-indigo-500 focus:outline-none"
-                placeholder="A few words…"
+                className={`mt-1 w-full rounded-xl border-2 bg-white p-2.5 focus:border-indigo-500 focus:outline-none ${
+                  activeLine === i ? "border-indigo-400" : "border-slate-200"
+                }`}
+                placeholder={ideas.length ? "Tap an idea above, or type a few words…" : "A few words…"}
+                onFocus={() => setActiveLine(i)}
                 value={work.outline[i] ?? ""}
                 onChange={(e) => {
                   const outline = [...work.outline];
@@ -274,6 +336,18 @@ export function WritingStudio({ task }: { task: StudioTask }) {
                 <>Write your piece in the box below, in full sentences.</>
               )}
             </StepIntro>
+            {hasOutline && !planInDraft && !triesUsed && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-indigo-200 bg-indigo-50 p-3 text-sm">
+                <span className="text-slate-800">📋 Your plan isn&apos;t in the box yet.</span>
+                <button
+                  type="button"
+                  onClick={copyPlanIn}
+                  className="rounded-full bg-indigo-600 px-4 py-1.5 font-semibold text-white hover:bg-indigo-700"
+                >
+                  Copy my plan in
+                </button>
+              </div>
+            )}
             <textarea
               className="h-80 w-full rounded-2xl border-2 border-slate-200 bg-white p-4 text-lg leading-relaxed focus:border-indigo-500 focus:outline-none lg:h-[28rem]"
               placeholder="Write your full piece here…"
