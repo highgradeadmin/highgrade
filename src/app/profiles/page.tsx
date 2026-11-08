@@ -42,9 +42,9 @@ export default function ProfilesPage() {
           </Link>
         </div>
       ) : (
-        <ul className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3">
+        <ul className="mt-8 flex flex-wrap justify-center gap-4">
           {children.map((c) => (
-            <li key={c.id} className="flex flex-col items-center gap-1">
+            <li key={c.id} className="flex w-40 flex-col items-center gap-1 sm:w-44">
               <button
                 onClick={async () => {
                   await selectChild(c.id);
@@ -71,8 +71,11 @@ export default function ProfilesPage() {
         </ul>
       )}
 
-      <Link href="/parent" className="mt-10 inline-flex items-center gap-1 text-sm font-medium text-slate-600 hover:text-slate-900">
-        ⚙ Parent area
+      <Link
+        href="/parent"
+        className="mt-10 inline-flex items-center gap-2 rounded-full border-2 border-slate-300 bg-white px-5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-indigo-400 hover:text-indigo-700"
+      >
+        ⚙ Parent area →
       </Link>
 
       {editing && <LookPicker child={editing} onClose={() => setEditing(null)} />}

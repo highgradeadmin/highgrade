@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { AdminProgress } from "@/components/AdminProgress";
 import { estimateCost, formatTokens, formatUsd, type ModelUsage } from "@/lib/pricing";
 import { useAuthStatus, useIsAdmin } from "@/lib/storage";
 import { createClient } from "@/lib/supabase/client";
@@ -10,11 +11,16 @@ interface AdminChild {
   child_id: string;
   name: string;
   grade: number;
+  level?: string;
   created_at: string;
   pieces: number;
   feedback_requests: number;
   last_active_at: string | null;
   usage_by_model: Record<string, ModelUsage>;
+  // From migration 0006 (missing until it has run).
+  scored_tries?: number;
+  score_now?: number | null;
+  score_start?: number | null;
 }
 
 interface AdminFamily {
@@ -153,7 +159,7 @@ export default function AdminPage() {
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Admin</p>
-          <h1 className="text-2xl font-bold">Families &amp; usage</h1>
+          <h1 className="text-2xl font-bold">Families, progress &amp; usage</h1>
         </div>
         <button
           onClick={() => setReloadKey((k) => k + 1)}
@@ -173,6 +179,10 @@ export default function AdminPage() {
         <Tile label="Tokens (in / out)" value={`${formatTokens(totals.input)} / ${formatTokens(totals.output)}`} />
         <Tile label="Estimated cost" value={formatUsd(totals.cost)} />
       </section>
+
+      {families !== null && (
+        <AdminProgress kids={all.flatMap((f) => f.kids.map((c) => ({ ...c, familyEmail: f.email })))} now={now} />
+      )}
 
       <section className="rounded-xl border border-slate-200 bg-white">
         <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 p-3">

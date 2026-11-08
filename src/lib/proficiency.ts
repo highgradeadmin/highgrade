@@ -24,7 +24,7 @@ export const STATUS_UI: Record<Status, { icon: string; label: string; className:
 /** Minimal shape so this works with the student store and the parent's overview. */
 export interface PieceLike {
   text?: string;
-  drafts: { feedback: Feedback | null }[];
+  drafts: { feedback: Pick<Feedback, "traits"> | null }[];
 }
 
 export interface LessonResult {

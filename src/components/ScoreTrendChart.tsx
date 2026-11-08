@@ -25,7 +25,7 @@ function useWidth<T extends HTMLElement>() {
 const fmtDate = (at: string) =>
   at ? new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
 
-/** Line chart of a score (1-5) across drafts, oldest → newest. Single series. */
+/** Line chart of a score (1-5) over time: x is the date of each draft. Single series. */
 export function ScoreTrendChart({ points, label }: { points: Point[]; label: string }) {
   const [boxRef, width] = useWidth<HTMLDivElement>();
   const [active, setActive] = useState<number | null>(null);
@@ -42,21 +42,32 @@ export function ScoreTrendChart({ points, label }: { points: Point[]; label: str
   const innerW = width - M.left - M.right;
   const innerH = H - M.top - M.bottom;
   const n = points.length;
-  const x = (i: number) => M.left + (n === 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+  // Time scale: drafts are placed by when they got feedback, so gaps between sessions show.
+  const times = points.map((p) => new Date(p.at).getTime());
+  const t0 = times[0];
+  const span = times[n - 1] - t0;
+  const xt = (t: number) => M.left + (span > 0 ? ((t - t0) / span) * innerW : innerW / 2);
+  const x = (i: number) => xt(times[i]);
   const y = (v: number) => M.top + ((5 - v) / 4) * innerH;
   const path = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join("");
   const area = `${path}L${x(n - 1)},${y(1)}L${x(0)},${y(1)}Z`;
   const last = points[n - 1];
   const sel = active !== null ? points[active] : null;
 
-  // X ticks: first, last and a few in between, by draft number.
-  const tickCount = Math.min(n, Math.max(2, Math.floor(innerW / 80)));
-  const ticks = Array.from(new Set(Array.from({ length: tickCount }, (_, k) => Math.round((k / (tickCount - 1)) * (n - 1)))));
+  // X ticks: evenly spaced dates from the first draft to the last (no repeated labels).
+  const tickCount = span > 0 ? Math.max(2, Math.floor(innerW / 90)) : 1;
+  const ticks: { t: number; label: string }[] = [];
+  for (let k = 0; k < tickCount; k++) {
+    const t = tickCount === 1 ? t0 : t0 + (k / (tickCount - 1)) * span;
+    const label = fmtDate(new Date(t).toISOString());
+    if (!ticks.some((x) => x.label === label)) ticks.push({ t, label });
+  }
 
   function nearest(clientX: number, rect: DOMRect) {
     const px = ((clientX - rect.left) / rect.width) * width;
-    const i = Math.round(((px - M.left) / innerW) * (n - 1));
-    return Math.min(n - 1, Math.max(0, i));
+    let best = 0;
+    for (let i = 1; i < n; i++) if (Math.abs(x(i) - px) < Math.abs(x(best) - px)) best = i;
+    return best;
   }
 
   return (
@@ -67,7 +78,7 @@ export function ScoreTrendChart({ points, label }: { points: Point[]; label: str
           height={H}
           className="block w-full touch-none select-none outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
           role="img"
-          aria-label={`${label} score across ${n} drafts, from ${points[0].value.toFixed(1)} to ${last.value.toFixed(1)}. Use arrow keys to step through drafts.`}
+          aria-label={`${label} score across ${n} drafts from ${fmtDate(points[0].at)} to ${fmtDate(last.at)}, from ${points[0].value.toFixed(1)} to ${last.value.toFixed(1)}. Use arrow keys to step through drafts.`}
           tabIndex={0}
           onPointerMove={(e) => setActive(nearest(e.clientX, e.currentTarget.getBoundingClientRect()))}
           onPointerLeave={() => setActive(null)}
@@ -93,9 +104,16 @@ export function ScoreTrendChart({ points, label }: { points: Point[]; label: str
           </text>
 
           {/* X ticks */}
-          {ticks.map((i) => (
-            <text key={i} x={x(i)} y={H - 8} textAnchor="middle" fontSize={11} fill={MUTED}>
-              #{points[i].index}
+          {ticks.map((tk, k) => (
+            <text
+              key={tk.label}
+              x={xt(tk.t)}
+              y={H - 8}
+              textAnchor={ticks.length === 1 ? (span > 0 ? "start" : "middle") : k === 0 ? "start" : k === ticks.length - 1 ? "end" : "middle"}
+              fontSize={11}
+              fill={MUTED}
+            >
+              {tk.label}
             </text>
           ))}
 

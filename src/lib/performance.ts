@@ -30,7 +30,7 @@ export interface ScoredDraft extends Draft {
 }
 
 /** All drafts that have feedback, oldest first, tagged with their piece's title. */
-export function scoredDrafts(works: Work[]): ScoredDraft[] {
+export function scoredDrafts(works: Pick<Work, "title" | "drafts">[]): ScoredDraft[] {
   return works
     .flatMap((w) => w.drafts.filter((d) => d.feedback).map((d) => ({ ...d, title: w.title })))
     .sort((a, b) => a.at.localeCompare(b.at));

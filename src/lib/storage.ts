@@ -497,8 +497,34 @@ export interface PlanInfo {
   periodEnd?: string | null;
   cancelAtPeriodEnd?: boolean;
   hadSubscription?: boolean;
-  trialDays?: number;
+  /** Free coach feedback tries (no card): counted per email address. */
+  freeTries?: { used: number; limit: number; left: number };
+  /** What a plan includes each month (fair use, for the whole family). */
+  allowance?: { monthlyTokens: number; dailyLimit: number; approxFeedbacks: number };
   error?: string;
+}
+
+/** The family's coach feedback usage (see src/lib/usage.ts). */
+export interface UsageInfo {
+  monthTokens: number;
+  monthlyTokens: number;
+  monthRequests: number;
+  perChild: Record<string, number>;
+  todayRequests: number;
+  dailyLimit: number;
+  tokensPerFeedback: number;
+  feedbackLeft: number;
+  resetsAt: string;
+  error?: string;
+}
+
+export async function fetchUsage(): Promise<UsageInfo | null> {
+  try {
+    const res = await fetch("/api/usage", { cache: "no-store" });
+    return res.ok ? ((await res.json()) as UsageInfo) : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchPlan(): Promise<PlanInfo> {
@@ -524,6 +550,28 @@ export async function openBilling(action: "checkout" | "portal", interval: "mont
     if (res.status === 403) lockParentArea();
     if (!res.ok || !data.url) return data.error ?? "Something went wrong.";
     window.location.assign(data.url);
+    return null;
+  } catch {
+    return "Couldn't reach the server. Check your connection.";
+  }
+}
+
+/** Deletes the whole family account (cancels the plan first). Returns an error, or null when done. */
+export async function deleteAccount(confirm: string): Promise<string | null> {
+  if (!parentPin) return "The parent area is locked. Enter your PIN again.";
+  try {
+    await flushAll();
+    const res = await fetch("/api/account/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin: parentPin, confirm }),
+    });
+    const data = (await res.json()) as { ok?: boolean; error?: string };
+    if (res.status === 403) lockParentArea();
+    if (!res.ok || !data.ok) return data.error ?? "Something went wrong.";
+    if (state.userId) rememberChild(state.userId, null);
+    lockParentArea();
+    await createClient().auth.signOut();
     return null;
   } catch {
     return "Couldn't reach the server. Check your connection.";

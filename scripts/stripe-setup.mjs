@@ -1,5 +1,7 @@
 // One-time Stripe setup: the Family Plan product, its two prices, and the customer portal.
-// Safe to run again (it reuses what already exists). Run it once for test mode and once for live:
+// Safe to run again: it reuses what already exists, and when a price changes it creates the new
+// price, moves the lookup key to it and archives the old one (current subscribers keep their price).
+// Keep src/lib/plans.ts in sync. Run it once for test mode and once for live:
 //   node --env-file=.env.local scripts/stripe-setup.mjs
 import Stripe from "stripe";
 
@@ -9,8 +11,8 @@ const stripe = new Stripe(key);
 console.log(`Stripe ${key.startsWith("sk_live_") ? "LIVE" : "test"} mode`);
 
 const PRICES = [
-  { lookup_key: "family_monthly", unit_amount: 999, interval: "month", nickname: "Family plan — monthly" },
-  { lookup_key: "family_yearly", unit_amount: 7900, interval: "year", nickname: "Family plan — yearly" },
+  { lookup_key: "family_monthly", unit_amount: 799, interval: "month", nickname: "Family plan — monthly" },
+  { lookup_key: "family_yearly", unit_amount: 6900, interval: "year", nickname: "Family plan — yearly" },
 ];
 
 const existing = await stripe.prices.list({ lookup_keys: PRICES.map((p) => p.lookup_key), expand: ["data.product"] });
@@ -28,16 +30,23 @@ if (!product || typeof product === "string" || product.deleted) {
 const prices = [];
 for (const p of PRICES) {
   let price = existing.data.find((x) => x.lookup_key === p.lookup_key);
-  if (!price) {
+  const old = price;
+  if (!price || price.unit_amount !== p.unit_amount || price.recurring?.interval !== p.interval) {
+    // Stripe prices can't be edited: make a new one and move the lookup key over to it.
     price = await stripe.prices.create({
       product: product.id,
       currency: "usd",
       unit_amount: p.unit_amount,
       recurring: { interval: p.interval },
       lookup_key: p.lookup_key,
+      transfer_lookup_key: true,
       nickname: p.nickname,
     });
-    console.log("Created price", p.lookup_key, price.id);
+    console.log("Created price", p.lookup_key, price.id, `$${(p.unit_amount / 100).toFixed(2)}`);
+    if (old) {
+      await stripe.prices.update(old.id, { active: false });
+      console.log("Archived old price", old.id, `$${((old.unit_amount ?? 0) / 100).toFixed(2)}`);
+    }
   } else {
     console.log("Using price", p.lookup_key, price.id);
   }

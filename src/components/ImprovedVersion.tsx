@@ -1,7 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import type { Feedback } from "@/lib/feedback";
+import { findWord, replaceOnce, swapWord } from "@/lib/practice";
 import { ReadAloud } from "./ReadAloud";
+import { joinSpoken, SpeechButton } from "./SpeechButton";
 
 type Token = { text: string; added: boolean };
 
@@ -68,10 +71,51 @@ const noCopy = {
   className: "select-none",
 };
 
-/** Before/after sentences and the coach's improved version of the whole piece. */
-export function ImprovedVersion({ feedback, studentText }: { feedback: Partial<Feedback>; studentText: string }) {
+/** What the student has done in the practice for one round of feedback. */
+export interface PracticeState {
+  /** Which feedback (draft time) this practice belongs to. */
+  at: string;
+  swaps: Record<number, { choice: string; sentence: string }>;
+  attempt: string;
+  revealed: boolean;
+  usedAttempt: boolean;
+  skipped: boolean;
+}
+
+export const emptyPractice = (at: string): PracticeState => ({
+  at,
+  swaps: {},
+  attempt: "",
+  revealed: false,
+  usedAttempt: false,
+  skipped: false,
+});
+
+/** Changes the draft; returns false if the change no longer fits (the student edited that part). */
+export type ApplyToDraft = (change: (text: string) => string | null) => boolean;
+
+const countWords = (t: string) => (t.trim() ? t.trim().split(/\s+/).length : 0);
+
+/** Practice first (word swaps, then fix one sentence yourself), then the coach's version unlocks. */
+export function ImprovedVersion({
+  feedback,
+  studentText,
+  practice,
+  onPractice,
+  applyToDraft,
+  voice = false,
+}: {
+  feedback: Partial<Feedback>;
+  studentText: string;
+  practice: PracticeState;
+  onPractice: (patch: Partial<PracticeState>) => void;
+  applyToDraft: ApplyToDraft;
+  voice?: boolean;
+}) {
   const makeovers = feedback.sentence_makeovers ?? [];
+  const swaps = feedback.word_swaps ?? [];
   const improved = feedback.improved_version;
+  const [tryFirst, ...moreMakeovers] = makeovers;
 
   if (!improved && makeovers.length === 0) {
     return (
@@ -81,55 +125,305 @@ export function ImprovedVersion({ feedback, studentText }: { feedback: Partial<F
     );
   }
 
+  const hasPractice = swaps.length > 0 || Boolean(tryFirst);
+  const practiceDone =
+    practice.skipped || (swaps.every((_, i) => practice.swaps[i]) && (!tryFirst || practice.revealed));
+  const unlocked = !hasPractice || practiceDone;
+
   return (
     <div className="space-y-5">
-      {makeovers.length > 0 && (
-        <section>
-          <h3 className="mb-2 font-semibold">✨ Sentence makeovers</h3>
-          <ul className="space-y-3">
-            {makeovers.map((m, i) => (
-              <li key={i} className="rounded-3xl border border-slate-200 bg-white p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">You wrote</p>
-                <p className="mt-1 text-slate-700">{m.before}</p>
-                <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-emerald-700">Even better</p>
-                <p {...noCopy} className={`${noCopy.className} mt-1 text-slate-900`}>
-                  <Highlighted before={m.before} after={m.after} />
-                </p>
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-slate-600">💡 {m.why}</p>
-                  <ReadAloud text={`You wrote: ${m.before} Even better: ${m.after}`} label="Hear both" />
-                </div>
-              </li>
-            ))}
-          </ul>
+      {hasPractice && (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="font-semibold">💪 Quick practice</h3>
+            {!practiceDone && (
+              <button
+                type="button"
+                onClick={() => onPractice({ skipped: true })}
+                className="text-sm text-slate-500 underline hover:text-slate-700"
+              >
+                Skip practice
+              </button>
+            )}
+          </div>
+          {swaps.map((s, i) => (
+            <WordSwap
+              key={i}
+              swap={s}
+              done={practice.swaps[i]}
+              applyToDraft={applyToDraft}
+              onDone={(d) => onPractice({ swaps: { ...practice.swaps, [i]: d } })}
+            />
+          ))}
+          {tryFirst && (
+            <TryItFirst
+              makeover={tryFirst}
+              practice={practice}
+              onPractice={onPractice}
+              applyToDraft={applyToDraft}
+              voice={voice}
+            />
+          )}
         </section>
       )}
 
-      {improved && (
-        <section>
-          <h3 className="mb-1 font-semibold">📝 Your whole piece, made stronger</h3>
-          <p className="mb-2 text-sm text-slate-600">
-            <mark className="rounded bg-emerald-100 px-0.5">Green words</mark> are the coach&apos;s changes.
-          </p>
-          <div className="grid gap-3 lg:grid-cols-2">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Yours</p>
-              <div className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{studentText}</div>
-            </div>
-            <div className="rounded-xl border border-emerald-200 bg-white p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Coach&apos;s version</p>
-                <ReadAloud text={improved} label="Hear it" />
+      {!unlocked ? (
+        <div className="rounded-3xl border-2 border-dashed border-slate-300 p-5 text-center text-slate-600">
+          🔒 Finish the practice to see the coach&apos;s version of your whole piece.
+        </div>
+      ) : (
+        <>
+          {moreMakeovers.length > 0 && (
+            <section>
+              <h3 className="mb-2 font-semibold">✨ More sentence makeovers</h3>
+              <ul className="space-y-3">
+                {moreMakeovers.map((m, i) => (
+                  <li key={i} className="rounded-3xl border border-slate-200 bg-white p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">You wrote</p>
+                    <p className="mt-1 text-slate-700">{m.before}</p>
+                    <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-emerald-700">Even better</p>
+                    <p {...noCopy} className={`${noCopy.className} mt-1 text-slate-900`}>
+                      <Highlighted before={m.before} after={m.after} />
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-slate-600">💡 {m.why}</p>
+                      <ReadAloud text={`You wrote: ${m.before} Even better: ${m.after}`} label="Hear both" />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {improved && (
+            <section>
+              <h3 className="mb-1 font-semibold">📝 Your whole piece, made stronger</h3>
+              <p className="mb-2 text-sm text-slate-600">
+                <mark className="rounded bg-emerald-100 px-0.5">Green words</mark> are the coach&apos;s changes.
+              </p>
+              <div className="grid gap-3 lg:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Yours</p>
+                  <div className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{studentText}</div>
+                </div>
+                <div className="rounded-xl border border-emerald-200 bg-white p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Coach&apos;s version</p>
+                    <ReadAloud text={improved} label="Hear it" />
+                  </div>
+                  <div
+                    {...noCopy}
+                    className={`${noCopy.className} mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-900`}
+                  >
+                    <Highlighted before={studentText} after={improved} />
+                  </div>
+                </div>
               </div>
-              <div
-                {...noCopy}
-                className={`${noCopy.className} mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-900`}
-              >
-                <Highlighted before={studentText} after={improved} />
-              </div>
-            </div>
+            </section>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/** The sentence with the swappable word picked out. */
+function SentenceWithWord({ sentence, word }: { sentence: string; word: string }) {
+  const found = findWord(sentence, word);
+  if (!found) return <>{sentence}</>;
+  return (
+    <>
+      {sentence.slice(0, found.index)}
+      <b className="rounded bg-amber-100 px-1 text-amber-950">{found.text}</b>
+      {sentence.slice(found.index + found.text.length)}
+    </>
+  );
+}
+
+function WordSwap({
+  swap,
+  done,
+  applyToDraft,
+  onDone,
+}: {
+  swap: NonNullable<Feedback["word_swaps"]>[number];
+  done?: { choice: string; sentence: string };
+  applyToDraft: ApplyToDraft;
+  onDone: (d: { choice: string; sentence: string }) => void;
+}) {
+  const [missing, setMissing] = useState(false);
+  const sentence = done?.sentence ?? swap.sentence;
+  const word = done?.choice ?? swap.word;
+
+  function pick(choice: string) {
+    const next = swapWord(sentence, word, choice);
+    if (next === null || !applyToDraft((t) => replaceOnce(t, sentence, next))) {
+      setMissing(true);
+      return;
+    }
+    setMissing(false);
+    onDone({ choice, sentence: next });
+  }
+
+  return (
+    <div className="rounded-3xl border border-amber-200 bg-amber-50/60 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <p className="font-semibold text-slate-900">
+          {done ? "✓ " : "🔤 "}Pick a stronger word for <q>{swap.word}</q>
+        </p>
+        <ReadAloud
+          text={`${swap.sentence} Pick a stronger word for ${swap.word}: ${swap.options.join(", ")}.`}
+          label="Hear it"
+        />
+      </div>
+      <p className="mt-2 text-slate-800">
+        <SentenceWithWord sentence={sentence} word={word} />
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {swap.options.map((o) => (
+          <button
+            key={o}
+            type="button"
+            onClick={() => pick(o)}
+            aria-pressed={done?.choice === o}
+            className={`rounded-full border px-3 py-1 font-medium transition ${
+              done?.choice === o
+                ? "border-emerald-500 bg-emerald-600 text-white"
+                : "border-amber-300 bg-white text-slate-800 hover:bg-amber-100"
+            }`}
+          >
+            {o}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => pick(swap.word)}
+          aria-pressed={done?.choice === swap.word}
+          className={`rounded-full border px-3 py-1 text-sm transition ${
+            done?.choice === swap.word
+              ? "border-slate-500 bg-slate-600 text-white"
+              : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+          }`}
+        >
+          Keep <q>{swap.word}</q>
+        </button>
+      </div>
+      {done && !missing && (
+        <p className="mt-2 text-sm text-slate-600">
+          {done.choice === swap.word ? "Okay, your word stays." : <>✓ Changed in your draft. 💡 {swap.why}</>}
+        </p>
+      )}
+      {missing && (
+        <p className="mt-2 text-sm text-rose-700">
+          You&apos;ve changed that sentence already. Make the swap in your draft yourself if you like it.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function TryItFirst({
+  makeover,
+  practice,
+  onPractice,
+  applyToDraft,
+  voice,
+}: {
+  makeover: Feedback["sentence_makeovers"][number];
+  practice: PracticeState;
+  onPractice: (patch: Partial<PracticeState>) => void;
+  applyToDraft: ApplyToDraft;
+  voice: boolean;
+}) {
+  const [missing, setMissing] = useState(false);
+  const hint = makeover.hint || "Make this sentence stronger. Add a detail.";
+  const attempt = practice.attempt;
+  const tried = countWords(attempt) >= 3 && attempt.trim() !== makeover.before.trim();
+
+  function useMine() {
+    if (!applyToDraft((t) => replaceOnce(t, makeover.before, attempt.trim()))) {
+      setMissing(true);
+      return;
+    }
+    onPractice({ usedAttempt: true });
+  }
+
+  return (
+    <div className="rounded-3xl border border-indigo-200 bg-indigo-50/50 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <p className="font-semibold text-slate-900">✏️ Fix this sentence yourself</p>
+        <ReadAloud text={`${makeover.before} Tip: ${hint}`} label="Hear it" />
+      </div>
+      <p className="mt-2 text-slate-700">{makeover.before}</p>
+      <p className="mt-2 text-sm font-medium text-indigo-900">💡 {hint}</p>
+
+      {!practice.revealed ? (
+        <>
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <span className="text-sm font-semibold text-slate-700">Your better sentence</span>
+            {voice && (
+              <SpeechButton size="sm" onText={(t) => onPractice({ attempt: joinSpoken(practice.attempt, t).text })} />
+            )}
           </div>
-        </section>
+          <textarea
+            aria-label="Your better sentence"
+            className="mt-1 w-full rounded-xl border-2 border-slate-200 bg-white p-2.5 focus:border-indigo-500 focus:outline-none"
+            rows={2}
+            placeholder="Write your new sentence here…"
+            value={attempt}
+            onChange={(e) => onPractice({ attempt: e.target.value })}
+          />
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => onPractice({ revealed: true })}
+              className="text-sm text-slate-500 underline hover:text-slate-700"
+            >
+              I&apos;m stuck, show me
+            </button>
+            <button
+              type="button"
+              disabled={!tried}
+              onClick={() => onPractice({ revealed: true })}
+              className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Compare with the coach →
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="mt-3 space-y-3">
+          {attempt.trim() && (
+            <div className="rounded-2xl bg-white p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Yours</p>
+              <p className="mt-1 text-slate-900">{attempt}</p>
+            </div>
+          )}
+          <div className="rounded-2xl border border-emerald-200 bg-white p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Coach&apos;s</p>
+            <p {...noCopy} className={`${noCopy.className} mt-1 text-slate-900`}>
+              <Highlighted before={makeover.before} after={makeover.after} />
+            </p>
+            <p className="mt-1 text-sm text-slate-600">💡 {makeover.why}</p>
+          </div>
+          {attempt.trim() &&
+            (practice.usedAttempt ? (
+              <p className="text-sm text-emerald-800">✓ Your sentence is in your draft.</p>
+            ) : (
+              <button
+                type="button"
+                onClick={useMine}
+                className="rounded-full border border-indigo-300 bg-white px-4 py-1.5 text-sm font-semibold text-indigo-700 hover:bg-indigo-50"
+              >
+                Put my sentence in my draft
+              </button>
+            ))}
+          {missing && (
+            <p className="text-sm text-rose-700">
+              That sentence has changed in your draft. Put your new one in yourself.
+            </p>
+          )}
+        </div>
       )}
     </div>
   );

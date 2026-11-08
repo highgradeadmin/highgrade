@@ -4,6 +4,7 @@ import { Lexend } from "next/font/google";
 import { AuthNav } from "@/components/AuthNav";
 import { CoachOwl } from "@/components/Coach";
 import { SetupGuard } from "@/components/SetupGuard";
+import { Suspense } from "react";
 import "./globals.css";
 
 // Lexend was designed for reading ease, which helps younger and struggling readers.
@@ -24,7 +25,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${lexend.variable} h-full antialiased`}>
       <body className="flex min-h-full flex-col">
-        <SetupGuard />
+        {/* Reads the URL, so it waits for it on routes like /admin/child/[id] (Cache Components). */}
+        <Suspense fallback={null}>
+          <SetupGuard />
+        </Suspense>
         <header className="border-b border-indigo-100 bg-white/90">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-3">
             <Link href="/" className="flex items-center gap-1.5 text-xl font-bold text-indigo-700">

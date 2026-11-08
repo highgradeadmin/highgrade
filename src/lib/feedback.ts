@@ -51,9 +51,32 @@ export const FeedbackSchema = z.object({
           .string()
           .describe("That same sentence made better, keeping the student's idea and most of their words."),
         why: z.string().describe("What changed and why it is better. Under 12 words."),
+        hint: z
+          .string()
+          .describe(
+            "A tip that helps the student fix this sentence themselves, without giving the answer. Under 12 words, e.g. 'Say what the water felt like.'",
+          ),
       }),
     )
-    .describe("2-3 of the student's weakest sentences, each shown before and after."),
+    .describe(
+      "2-3 of the student's weakest sentences, each shown before and after. The student practises the first one before seeing the answer, so put the best one to practise first.",
+    ),
+  word_swaps: z
+    .array(
+      z.object({
+        sentence: z.string().describe("One sentence copied exactly from the student's writing."),
+        word: z
+          .string()
+          .describe("A plain or overused word (or two-word phrase) in that sentence, copied exactly, e.g. 'nice', 'went', 'a lot'."),
+        options: z
+          .array(z.string())
+          .describe("3 stronger words that could replace it in that exact spot and still make sense. Words a strong student in their grade would know."),
+        why: z.string().describe("Why a stronger word helps here. Under 12 words."),
+      }),
+    )
+    .describe(
+      "1-2 vocabulary swaps from different sentences than the first sentence makeover. Empty if the word choice is already strong.",
+    ),
   improved_version: z
     .string()
     .describe(

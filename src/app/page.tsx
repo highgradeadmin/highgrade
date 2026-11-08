@@ -4,7 +4,7 @@ import { TodayPrompt } from "@/components/DailyWrite";
 
 const LOOP = [
   { n: "1", title: "Learn a skill", body: "Short lessons with strong vs. weak examples, so you see exactly what good writing looks like." },
-  { n: "2", title: "Plan & draft", body: "Brainstorm, outline, then write — with guiding questions at every step instead of a blank page." },
+  { n: "2", title: "Plan & write", body: "A one-minute plan with guiding questions, then write — no blank page." },
   { n: "3", title: "Get coached", body: "Your AI coach quotes your own sentences, shows what works, and gives 1–2 clear things to fix." },
   { n: "4", title: "See it improved", body: "See your own sentences made stronger, then make the changes in your own words and watch your scores climb." },
 ];

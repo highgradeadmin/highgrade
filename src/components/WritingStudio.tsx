@@ -1,16 +1,18 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { MAX_TRIES, type Feedback } from "@/lib/feedback";
 import type { Genre } from "@/lib/lessons";
 import Link from "next/link";
 import {
   addDraft,
+  fetchPlan,
   flushWork,
   getActiveChildId,
   getWork,
   saveWork,
   useAuthStatus,
+  useIsAdmin,
   useProfile,
   useSaveStatus,
   useWork,
@@ -21,7 +23,7 @@ import type { Walkthrough } from "@/lib/walkthroughs";
 import { CoachSays } from "./Coach";
 import { FeedbackLoading } from "./FeedbackLoading";
 import { FeedbackPanel } from "./FeedbackPanel";
-import { ImprovedVersion } from "./ImprovedVersion";
+import { emptyPractice, ImprovedVersion, type ApplyToDraft, type PracticeState } from "./ImprovedVersion";
 import { PlanToDraftExample } from "./PlanToDraftExample";
 import { ReadAloud } from "./ReadAloud";
 import { joinSpoken, SpeechButton } from "./SpeechButton";
@@ -38,11 +40,11 @@ export interface StudioTask {
   brainstorm: string[];
   outline: string[];
   checklist: string[];
-  /** Worked plan → draft example shown in the Draft step. */
+  /** Worked plan → draft example shown in the Write step. */
   walkthrough?: Walkthrough;
 }
 
-const STEPS = ["Brainstorm", "Outline", "Draft", "Improve"] as const;
+const STEPS = ["Plan", "Write", "Improve"] as const;
 type Step = (typeof STEPS)[number];
 
 function countWords(text: string) {
@@ -69,24 +71,36 @@ export function WritingStudio({ task }: { task: StudioTask }) {
     updatedAt: "", // set by saveWork()
   };
 
-  const [step, setStep] = useState<Step>(work.drafts.length ? "Draft" : "Brainstorm");
+  const [step, setStep] = useState<Step>(work.drafts.length || work.text.trim() ? "Write" : "Plan");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeLine, setActiveLine] = useState<number | null>(null);
+  // Planning is optional: an empty plan gets one friendly nudge, then the child can skip it.
+  const [planNudge, setPlanNudge] = useState(false);
+  const [skippedPlan, setSkippedPlan] = useState(false);
+  const firstLineRef = useRef<HTMLInputElement>(null);
   // Speech-to-text: allowed per child by a parent. The coach is told when the draft was spoken.
   const voice = profile?.voiceTyping ?? false;
   const [spokeInDraft, setSpokeInDraft] = useState(false);
   const draftRef = useRef<HTMLTextAreaElement>(null);
   const fieldId = useId();
+  const [practiceState, setPracticeState] = useState<PracticeState>(emptyPractice(""));
+  // Free coach tries left for families without a plan (null = has a plan, admin, or billing off).
+  const isAdmin = useIsAdmin();
+  const [freeLeft, setFreeLeft] = useState<number | null>(null);
+  useEffect(() => {
+    if (auth !== "ready" || isAdmin) return;
+    let cancelled = false;
+    fetchPlan().then((p) => {
+      if (!cancelled) setFreeLeft(p.enabled && !p.active && p.freeTries ? p.freeTries.left : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [auth, isAdmin]);
 
   /** Latest copy from the store, so quick speech results don't overwrite each other. */
   const current = () => getWork(task.id) ?? work;
-
-  function speakIntoNote(question: string, spoken: string) {
-    const w = current();
-    const { text } = joinSpoken(w.notes[question] ?? "", spoken);
-    saveWork({ ...w, notes: { ...w.notes, [question]: text } });
-  }
 
   function speakIntoLine(i: number, spoken: string) {
     const w = current();
@@ -106,6 +120,16 @@ export function WritingStudio({ task }: { task: StudioTask }) {
   }
 
   const update = (patch: Partial<Work>) => saveWork({ ...work, ...patch });
+
+  function skipPlan() {
+    setSkippedPlan(true);
+    goTo("Write", { force: true });
+  }
+
+  function startQuickPlan() {
+    setPlanNudge(false);
+    firstLineRef.current?.focus();
+  }
   const words = countWords(work.text);
   const hasOutline = work.outline.some((l) => l?.trim());
   const latest = work.drafts.at(-1);
@@ -114,13 +138,24 @@ export function WritingStudio({ task }: { task: StudioTask }) {
   const outOfTries = triesUsed >= MAX_TRIES;
   const latestFeedback = latest?.feedback;
   const hasImproved = Boolean(latestFeedback?.improved_version || latestFeedback?.sentence_makeovers?.length);
+  // Practice starts fresh for each new round of feedback.
+  const practiceAt = latest?.at ?? "";
+  const practice = practiceState.at === practiceAt ? practiceState : emptyPractice(practiceAt);
+  const onPractice = (patch: Partial<PracticeState>) => setPracticeState({ ...practice, ...patch });
+  const applyToDraft: ApplyToDraft = (change) => {
+    const w = current();
+    const next = change(w.text);
+    if (next === null) return false;
+    saveWork({ ...w, text: next });
+    return true;
+  };
 
   const planLines = task.outline.map((_, i) => work.outline[i]?.trim()).filter((l): l is string => Boolean(l));
   const planText = planLines.join("\n");
   const lowerText = work.text.toLowerCase();
   const planInDraft = planLines.every((l) => lowerText.includes(l.toLowerCase()));
 
-  // Brainstorm notes split into single ideas, so they can be tapped into the plan instead of retyped.
+  // Notes from the old Brainstorm step, split into single ideas that can be tapped into the plan.
   const ideas = [
     ...new Set(
       Object.values(work.notes)
@@ -144,11 +179,19 @@ export function WritingStudio({ task }: { task: StudioTask }) {
     update({ text: work.text.trim() ? `${planText}\n\n${work.text}` : planText });
   }
 
-  /** Moving to Draft with an empty box copies the plan in, so the student edits it into sentences. */
-  function goTo(next: Step) {
-    if (next === "Draft" && !work.text.trim() && hasOutline) {
-      update({ text: planText });
+  /** Moving to Write with an empty box copies the plan in, so the student edits it into sentences. */
+  function goTo(next: Step, { force = false } = {}) {
+    if (next === "Write" && !work.text.trim()) {
+      if (hasOutline) {
+        update({ text: planText });
+      } else if (!force && !skippedPlan && !triesUsed) {
+        setPlanNudge(true);
+        setStep("Plan");
+        if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
     }
+    setPlanNudge(false);
     setStep(next);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -175,8 +218,16 @@ export function WritingStudio({ task }: { task: StudioTask }) {
           dictated: spokeInDraft,
         }),
       });
-      const data = (await res.json()) as { feedback?: Feedback; at?: string; error?: string };
+      const data = (await res.json()) as {
+        feedback?: Feedback;
+        at?: string;
+        error?: string;
+        code?: string;
+        freeTriesLeft?: number | null;
+      };
+      if (data.code === "no_plan") setFreeLeft(0);
       if (!res.ok || !data.feedback) throw new Error(data.error ?? "Something went wrong.");
+      if (typeof data.freeTriesLeft === "number") setFreeLeft(data.freeTriesLeft);
       addDraft(task.id, { text: work.text, feedback: data.feedback, at: data.at ?? "" });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
@@ -260,48 +311,50 @@ export function WritingStudio({ task }: { task: StudioTask }) {
         ))}
       </nav>
 
-      {step === "Brainstorm" && (
-        <section className="space-y-4">
-          <StepIntro
-            n={1}
-            title="Collect your ideas"
-            speak={`Write quick notes. Just words, not sentences. ${task.brainstorm.join(" ")}`}
-          >
-            Write <b>quick notes</b> — just words, not sentences.
-            <Example>cold water · fireflies · grandma&apos;s dock · feels calm</Example>
-          </StepIntro>
-          {task.brainstorm.map((q, i) => (
-            <div key={q}>
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <label htmlFor={`${fieldId}-b${i}`} className="font-semibold text-slate-800">
-                  {q}
-                </label>
-                {voice && <SpeechButton size="sm" onText={(t) => speakIntoNote(q, t)} />}
-              </div>
-              <textarea
-                id={`${fieldId}-b${i}`}
-                className="mt-1 w-full rounded-xl border-2 border-slate-200 bg-white p-2.5 focus:border-indigo-500 focus:outline-none"
-                rows={2}
-                placeholder="Quick notes…"
-                value={work.notes[q] ?? ""}
-                onChange={(e) => update({ notes: { ...work.notes, [q]: e.target.value } })}
-              />
-            </div>
-          ))}
-          <NextButton onClick={() => goTo("Outline")}>Next: Outline</NextButton>
-        </section>
-      )}
-
-      {step === "Outline" && (
+      {step === "Plan" && (
         <section className="space-y-3">
-          <StepIntro
-            n={2}
-            title="Make a plan"
-            speak={`Pick your best ideas and put them in order. Just a few words on each line. ${task.outline.join(". ")}.`}
-          >
-            Pick your best ideas and put them in order. <b>A few words</b> on each line.
-            <Example>Topic: lake = my happy place · Detail: icy water in July</Example>
-          </StepIntro>
+          {planNudge ? (
+            <CoachSays title="Want to plan for 1 minute first?">
+              <p className="text-slate-800">
+                A quick plan makes writing much easier, and it gets copied into your writing box for you.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={startQuickPlan}
+                  className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+                >
+                  Quick plan
+                </button>
+                <button
+                  type="button"
+                  onClick={skipPlan}
+                  className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  I know what to write →
+                </button>
+              </div>
+            </CoachSays>
+          ) : (
+            <StepIntro
+              n={1}
+              title="Make a quick plan"
+              speak={`Write a few words on each line. Not sentences. Think about: ${task.brainstorm.join(" ")}`}
+            >
+              <b>A few words</b> on each line — not sentences. It takes about a minute.
+              <Example>Topic: the lake = my happy place · Detail: icy water in July</Example>
+            </StepIntro>
+          )}
+          {task.brainstorm.length > 0 && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-3">
+              <p className="text-sm font-semibold text-slate-700">🤔 Think about</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-slate-700">
+                {task.brainstorm.map((q) => (
+                  <li key={q}>{q}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           {ideas.length > 0 && (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3">
               <p className="text-sm font-semibold text-amber-900">
@@ -341,6 +394,7 @@ export function WritingStudio({ task }: { task: StudioTask }) {
               </div>
               <input
                 id={`${fieldId}-o${i}`}
+                ref={i === 0 ? firstLineRef : undefined}
                 className={`mt-1 w-full rounded-xl border-2 bg-white p-2.5 focus:border-indigo-500 focus:outline-none ${
                   activeLine === i ? "border-indigo-400" : "border-slate-200"
                 }`}
@@ -355,15 +409,27 @@ export function WritingStudio({ task }: { task: StudioTask }) {
               />
             </div>
           ))}
-          <NextButton onClick={() => goTo("Draft")}>Next: Draft</NextButton>
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            {!hasOutline && !planNudge && (
+              <button type="button" onClick={skipPlan} className="text-sm text-slate-500 underline hover:text-slate-700">
+                Skip the plan
+              </button>
+            )}
+            <button
+              onClick={() => goTo("Write")}
+              className="rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-700"
+            >
+              Next: Write →
+            </button>
+          </div>
         </section>
       )}
 
-      {step === "Draft" && (
+      {step === "Write" && (
         <div className="grid gap-4 lg:grid-cols-2">
           <section className="space-y-3">
             <StepIntro
-              n={3}
+              n={2}
               title={triesUsed ? "Make it better" : "Write it for real"}
               speak={
                 triesUsed
@@ -430,6 +496,13 @@ export function WritingStudio({ task }: { task: StudioTask }) {
                     : `Get feedback · try ${triesUsed + 1} of ${MAX_TRIES}`}
               </button>
             </div>
+            {freeLeft !== null && !isAdmin && (
+              <p className={`text-right text-xs ${freeLeft > 0 ? "text-amber-800" : "text-rose-700"}`}>
+                {freeLeft > 0
+                  ? `🎁 ${freeLeft} free ${freeLeft === 1 ? "try" : "tries"} left for your family`
+                  : "🎁 Free tries used up. Ask a parent to start the family plan."}
+              </p>
+            )}
             {loading && <FeedbackLoading />}
             {outOfTries ? (
               <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
@@ -512,7 +585,7 @@ export function WritingStudio({ task }: { task: StudioTask }) {
                     onClick={() => goTo("Improve")}
                     className="mt-4 w-full rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900 hover:bg-emerald-100"
                   >
-                    ✨ See how to make it better →
+                    💪 Practise, then see it made better →
                   </button>
                 )}
               </div>
@@ -529,23 +602,32 @@ export function WritingStudio({ task }: { task: StudioTask }) {
       {step === "Improve" && (
         <section className="space-y-4">
           <StepIntro
-            n={4}
-            title="See it improved"
-            speak="Here's how your coach would make your writing stronger. Read it, then go back and make your own changes, in your own words."
+            n={3}
+            title="Practise and improve"
+            speak="First a quick practice on your own sentences. Your changes go straight into your draft. Then you'll see how your coach would make the whole piece stronger."
           >
             {latestFeedback ? (
               <>
-                Here&apos;s how your coach would make your writing stronger. Read it, then go back and make{" "}
-                <b>your own changes, in your own words</b>.
+                First a <b>quick practice</b> on your own sentences. Your changes go straight into your draft. Then
+                you&apos;ll see the coach&apos;s version.
               </>
             ) : (
               <>Get feedback on your draft first. Then you&apos;ll see your sentences made even better here.</>
             )}
           </StepIntro>
-          {latest && latestFeedback && <ImprovedVersion feedback={latestFeedback} studentText={latest.text} />}
+          {latest && latestFeedback && (
+            <ImprovedVersion
+              feedback={latestFeedback}
+              studentText={latest.text}
+              practice={practice}
+              onPractice={onPractice}
+              applyToDraft={applyToDraft}
+              voice={voice}
+            />
+          )}
           <div className="flex justify-end">
             <button
-              onClick={() => goTo("Draft")}
+              onClick={() => goTo("Write")}
               className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
             >
               {latestFeedback && !outOfTries ? "Back to my draft to make changes →" : "Back to my draft →"}
@@ -569,7 +651,7 @@ function StepIntro({
   children: React.ReactNode;
 }) {
   return (
-    <CoachSays title={`Step ${n} of 4 · ${title}`}>
+    <CoachSays title={`Step ${n} of ${STEPS.length} · ${title}`}>
       <div className="text-slate-800">{children}</div>
       {speak && (
         <div className="mt-2">
@@ -582,17 +664,4 @@ function StepIntro({
 
 function Example({ children }: { children: React.ReactNode }) {
   return <p className="mt-2 text-xs text-slate-500">Example: {children}</p>;
-}
-
-function NextButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
-  return (
-    <div className="flex justify-end">
-      <button
-        onClick={onClick}
-        className="rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-700"
-      >
-        {children} →
-      </button>
-    </div>
-  );
 }

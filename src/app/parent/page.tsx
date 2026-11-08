@@ -7,10 +7,14 @@ import { GradeSelect } from "@/components/GradePicker";
 import type { Feedback } from "@/lib/feedback";
 import { LEVELS, levelLabel } from "@/lib/lessons";
 import { metricValue } from "@/lib/performance";
+import { PLAN_DISPLAY, YEARLY_SAVING } from "@/lib/plans";
+import { formatTokens } from "@/lib/pricing";
 import { levelProgress, type PieceLike } from "@/lib/proficiency";
 import {
   addChild,
+  deleteAccount,
   deleteChild,
+  fetchUsage,
   fetchPlan,
   getPinStatus,
   openBilling,
@@ -28,6 +32,7 @@ import {
   type Child,
   type PinStatus,
   type PlanInfo,
+  type UsageInfo,
 } from "@/lib/storage";
 import { createClient } from "@/lib/supabase/client";
 
@@ -232,7 +237,7 @@ function useChildStats(children: Child[]) {
 const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" }) : "";
 
-/** Family plan: start the free trial, or see and manage the subscription in Stripe. */
+/** Family plan: free tries left, subscribe, or see and manage the subscription in Stripe. */
 function PlanCard() {
   const [plan, setPlan] = useState<PlanInfo | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -278,8 +283,7 @@ function PlanCard() {
           <div className="text-sm text-slate-700">
             {plan.status === "trialing" ? (
               <p>
-                <b className="text-slate-900">🎁 Free trial</b> — ends {fmtDate(plan.trialEnd)}. Then{" "}
-                {plan.interval === "year" ? "$79 a year" : "$9.99 a month"}.
+                <b className="text-slate-900">🎁 Free trial</b> — ends {fmtDate(plan.trialEnd)}.
               </p>
             ) : plan.status === "past_due" ? (
               <p className="text-amber-800">
@@ -300,24 +304,25 @@ function PlanCard() {
           <button onClick={() => go("portal")} disabled={busy !== null} className={secondary}>
             {busy === "portal" ? "Opening…" : "Manage plan"}
           </button>
+          {plan.allowance && <AllowanceNote allowance={plan.allowance} />}
         </div>
       ) : (
         <div className="mt-2">
-          <p className="text-sm text-slate-700">
-            {plan.hadSubscription ? (
-              "Restart your plan to turn coach feedback back on."
-            ) : (
-              <>
-                Try everything free for <b>{plan.trialDays ?? 7} days</b>. Coach feedback for all your children.
-                Cancel anytime before the trial ends and you won&apos;t be charged.
-              </>
-            )}
+          {plan.freeTries && (
+            <FreeTriesMeter used={plan.freeTries.used} limit={plan.freeTries.limit} left={plan.freeTries.left} />
+          )}
+          <p className="mt-3 text-sm text-slate-700">
+            {plan.hadSubscription
+              ? "Restart your plan to turn coach feedback back on."
+              : plan.freeTries && plan.freeTries.left > 0
+                ? "Like it? Subscribe any time for unlimited coach feedback for all your children. Cancel anytime."
+                : "Subscribe to keep getting coach feedback for all your children. Cancel anytime."}
           </p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             {(
               [
-                { interval: "month", price: "$9.99", per: "per month", note: "" },
-                { interval: "year", price: "$79", per: "per year", note: "Save 34%" },
+                { interval: "month", ...PLAN_DISPLAY.month, note: "" },
+                { interval: "year", ...PLAN_DISPLAY.year, note: YEARLY_SAVING },
               ] as const
             ).map((o) => (
               <button
@@ -335,15 +340,12 @@ function PlanCard() {
                   </span>
                 )}
                 <span className="mt-2 text-sm font-semibold text-indigo-700">
-                  {busy === o.interval
-                    ? "Opening…"
-                    : plan.hadSubscription
-                      ? "Choose →"
-                      : `Start ${plan.trialDays ?? 7}-day free trial →`}
+                  {busy === o.interval ? "Opening…" : "Subscribe →"}
                 </span>
               </button>
             ))}
           </div>
+          {plan.allowance && <AllowanceNote allowance={plan.allowance} />}
           <p className="mt-2 text-xs text-slate-500">
             Secure payment by Stripe. Lessons and Daily Write prompts stay free; the plan unlocks coach feedback.
           </p>
@@ -390,6 +392,7 @@ function ParentDashboard() {
       </header>
 
       <PlanCard />
+      <UsageCard kids={children} />
 
       <section>
         <h2 className="mb-3 text-lg font-semibold">Your children</h2>
@@ -421,10 +424,11 @@ function ParentDashboard() {
 
       {children.length < 6 && <AddChildForm />}
       <ChangePinForm />
+      <DeleteAccount childCount={children.length} />
 
       <p className="text-xs text-slate-500">
         The parent area locks automatically after 10 minutes. Removing a child deletes their writing and
-        scores permanently.
+        scores permanently. Deleting the family account deletes everything and cancels your plan.
       </p>
     </div>
   );
@@ -719,6 +723,187 @@ function ChangePinForm() {
           </button>
         </div>
       </form>
+    </section>
+  );
+}
+
+/** Deletes the whole family: the parent login, every child, all writing and scores, and the plan. */
+function DeleteAccount({ childCount }: { childCount: number }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className={`${secondary} text-rose-700`}>
+        Delete family account
+      </button>
+    );
+  }
+  return (
+    <section className="max-w-lg rounded-xl border-2 border-rose-200 bg-rose-50/50 p-5">
+      <h2 className="font-semibold text-rose-900">Delete family account</h2>
+      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-800">
+        <li>
+          Permanently deletes your parent account and{" "}
+          {childCount === 0 ? "all child profiles" : childCount === 1 ? "your child's profile" : `all ${childCount} child profiles`}
+          , with all their writing, feedback, scores and progress.
+        </li>
+        <li>Your family plan is cancelled right away, so you won&apos;t be charged again.</li>
+        <li>This can&apos;t be undone. To remove just one child, use Remove on their card instead.</li>
+      </ul>
+      <form
+        className="mt-4 space-y-3"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          setError(null);
+          const err = await deleteAccount(confirm.trim());
+          if (err) {
+            setBusy(false);
+            setError(err);
+            return;
+          }
+          router.replace("/goodbye");
+        }}
+      >
+        <label className="block text-sm text-slate-800">
+          Type <b>DELETE</b> to confirm
+          <input className={input} value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="off" />
+        </label>
+        {error && <p className="text-sm text-red-700">{error}</p>}
+        <div className="flex gap-2">
+          <button
+            disabled={busy || confirm.trim() !== "DELETE"}
+            className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-50"
+          >
+            {busy ? "Deleting…" : "Delete everything"}
+          </button>
+          <button type="button" onClick={() => setOpen(false)} className={secondary} disabled={busy}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+/** "9 of 15 free tries left" with a small meter. */
+function FreeTriesMeter({ used, limit, left }: { used: number; limit: number; left: number }) {
+  const pct = limit ? Math.min(100, (Math.min(used, limit) / limit) * 100) : 100;
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+      <p className="text-sm text-slate-800">
+        🎁 <b>{left > 0 ? `${left} of ${limit} free tries left` : `All ${limit} free tries used`}</b>
+        <span className="text-slate-600"> · coach feedback, no card needed, shared by your children</span>
+      </p>
+      <div
+        className="mt-2 h-2 rounded-full bg-amber-100"
+        role="meter"
+        aria-valuemin={0}
+        aria-valuemax={limit}
+        aria-valuenow={Math.min(used, limit)}
+        aria-label="Free tries used"
+      >
+        <div className="h-2 rounded-full bg-amber-500" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+/** Spells out what the plan includes each month. */
+function AllowanceNote({ allowance }: { allowance: NonNullable<PlanInfo["allowance"]> }) {
+  return (
+    <p className="mt-3 w-full rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
+      <b>Included each month:</b> {formatTokens(allowance.monthlyTokens)} tokens of coach feedback for your whole
+      family, about <b>{allowance.approxFeedbacks} feedbacks</b>, with up to {allowance.dailyLimit} a day. The
+      allowance resets on the 1st of each month.
+    </p>
+  );
+}
+
+/** How much coach feedback the family has used this month and today, and what's left. */
+function UsageCard({ kids }: { kids: Child[] }) {
+  const [usage, setUsage] = useState<UsageInfo | null | undefined>(undefined);
+  useEffect(() => {
+    let cancelled = false;
+    fetchUsage().then((u) => {
+      if (!cancelled) setUsage(u);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (usage === undefined) return <div className="h-28 animate-pulse rounded-xl bg-slate-100" />;
+  if (usage === null) return null;
+
+  const pct = usage.monthlyTokens ? Math.min(100, (usage.monthTokens / usage.monthlyTokens) * 100) : 0;
+  const resets = new Date(usage.resetsAt).toLocaleDateString(undefined, { month: "long", day: "numeric", timeZone: "UTC" });
+  const tone = pct >= 100 ? "bg-rose-500" : pct >= 80 ? "bg-amber-500" : "bg-indigo-500";
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-lg font-semibold">Coach usage this month</h2>
+        <span className="text-xs text-slate-500">Resets {resets}</span>
+      </div>
+
+      <p className="mt-2 text-sm text-slate-700">
+        <b className="text-slate-900">{formatTokens(usage.monthTokens)}</b> of {formatTokens(usage.monthlyTokens)} tokens used ·{" "}
+        {usage.monthTokens >= usage.monthlyTokens ? (
+          <b className="text-rose-700">none left this month</b>
+        ) : (
+          <>
+            about <b className="text-slate-900">{usage.feedbackLeft} feedbacks left</b>
+          </>
+        )}
+      </p>
+      <div
+        className="mt-2 h-2.5 rounded-full bg-slate-100"
+        role="meter"
+        aria-valuemin={0}
+        aria-valuemax={usage.monthlyTokens}
+        aria-valuenow={Math.min(usage.monthTokens, usage.monthlyTokens)}
+        aria-label="Coach tokens used this month"
+      >
+        <div className={`h-2.5 rounded-full ${tone}`} style={{ width: `${pct}%` }} />
+      </div>
+
+      <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+        <div className="rounded-lg bg-slate-50 p-3">
+          <dt className="text-slate-600">Feedbacks this month</dt>
+          <dd className="text-xl font-semibold text-slate-900">{usage.monthRequests}</dd>
+        </div>
+        <div className="rounded-lg bg-slate-50 p-3">
+          <dt className="text-slate-600">Today (all children)</dt>
+          <dd className="text-xl font-semibold text-slate-900">
+            {usage.todayRequests} <span className="text-sm font-normal text-slate-500">of {usage.dailyLimit}</span>
+          </dd>
+        </div>
+        <div className="rounded-lg bg-slate-50 p-3">
+          <dt className="text-slate-600">Average per feedback</dt>
+          <dd className="text-xl font-semibold text-slate-900">
+            {formatTokens(usage.tokensPerFeedback)} <span className="text-sm font-normal text-slate-500">tokens</span>
+          </dd>
+        </div>
+      </dl>
+
+      {kids.length > 0 && (
+        <ul className="mt-3 flex flex-wrap gap-2 text-sm">
+          {kids.map((c) => (
+            <li key={c.id} className="rounded-full border border-slate-200 px-3 py-1 text-slate-700">
+              {c.name}: <b>{usage.perChild[c.id] ?? 0}</b> this month
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-3 text-xs text-slate-500">
+        Tokens are how the AI coach&apos;s work is measured: longer writing and longer feedback use more. Each child
+        can also get up to 5 tries per piece of writing.
+      </p>
     </section>
   );
 }

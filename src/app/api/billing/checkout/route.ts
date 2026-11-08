@@ -1,7 +1,7 @@
-import { billingEnabled, ensureCustomer, pinOk, PLAN_PRICES, planStatus, stripe, TRIAL_DAYS } from "@/lib/billing";
+import { billingEnabled, ensureCustomer, pinOk, PLAN_PRICES, planStatus, stripe } from "@/lib/billing";
 import { createClient } from "@/lib/supabase/server";
 
-/** Starts Stripe Checkout for the family plan (7-day free trial the first time). */
+/** Starts Stripe Checkout for the family plan (no trial: families try it first with free tries). */
 export async function POST(request: Request) {
   if (!billingEnabled()) return Response.json({ error: "Billing isn't set up." }, { status: 503 });
   const supabase = await createClient();
@@ -31,10 +31,7 @@ export async function POST(request: Request) {
       customer,
       client_reference_id: parentId,
       line_items: [{ price: price.id, quantity: 1 }],
-      // One free trial per family.
-      subscription_data: status.hadSubscription
-        ? { metadata: { parent_id: parentId } }
-        : { trial_period_days: TRIAL_DAYS, metadata: { parent_id: parentId } },
+      subscription_data: { metadata: { parent_id: parentId } },
       allow_promotion_codes: true,
       success_url: `${origin}/parent?billing=success`,
       cancel_url: `${origin}/parent?billing=cancelled`,

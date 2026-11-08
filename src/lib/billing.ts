@@ -4,7 +4,6 @@ import type { createClient } from "@/lib/supabase/server";
 
 type ServerClient = Awaited<ReturnType<typeof createClient>>;
 
-export const TRIAL_DAYS = 7;
 export const PLAN_PRICES = { month: "family_monthly", year: "family_yearly" } as const;
 export type PlanInterval = keyof typeof PLAN_PRICES;
 
@@ -92,9 +91,33 @@ export async function ensureCustomer(supabase: ServerClient, parentId: string, e
   return c.id;
 }
 
+export interface FreeTries {
+  used: number;
+  limit: number;
+  left: number;
+}
+
+/** Free coach feedback tries left for the logged-in family (no card needed; counted per email). */
+export async function freeTries(supabase: ServerClient): Promise<FreeTries> {
+  const { data, error } = await supabase.rpc("free_tries_status");
+  if (error || !data) throw new Error(`Free tries check failed: ${error?.message ?? "no data"}`);
+  return data as FreeTries;
+}
+
 /** Billing changes need the parent PIN too (children may use the same logged-in device). */
 export async function pinOk(supabase: ServerClient, pin: unknown) {
   if (typeof pin !== "string" || !/^[0-9]{4,6}$/.test(pin)) return false;
   const { data } = await supabase.rpc("verify_parent_pin", { p_pin: pin });
   return data === true;
+}
+
+/** Ends every running subscription now (used when a family deletes their account). */
+export async function cancelAllSubscriptions(supabase: ServerClient, parentId: string) {
+  const customer = await verifiedCustomer(supabase, parentId);
+  if (!customer) return 0;
+  const subs = await stripe().subscriptions.list({ customer, status: "all", limit: 100 });
+  const running = subs.data.filter((s) => s.status !== "canceled" && s.status !== "incomplete_expired");
+  for (const s of running) await stripe().subscriptions.cancel(s.id);
+  await stripe().customers.update(customer, { metadata: { parent_id: parentId, account_deleted_at: new Date().toISOString() } });
+  return running.length;
 }

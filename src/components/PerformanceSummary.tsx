@@ -27,7 +27,7 @@ export function PerformanceSummary({
           <p className="text-lg font-semibold text-slate-900">{level.label}</p>
           {delta !== null && Math.abs(delta) >= 0.05 && (
             <p className={`text-sm font-medium ${delta > 0 ? "text-emerald-700" : "text-rose-700"}`}>
-              {delta > 0 ? "▲" : "▼"} {Math.abs(delta).toFixed(1)} {delta > 0 ? "up" : "down"} since your first drafts
+              {delta > 0 ? "▲" : "▼"} {Math.abs(delta).toFixed(1)} {delta > 0 ? "up" : "down"} since the first drafts
             </p>
           )}
         </div>
@@ -74,7 +74,7 @@ export function PerformanceSummary({
         {level.next
           ? `${(level.next.min - current).toFixed(1)} more to reach “${level.next.label}”. `
           : "You've reached the top level! "}
-        Based on your latest {Math.min(5, count)} draft{count === 1 ? "" : "s"}; scores compare you with
+        Based on the latest {Math.min(5, count)} draft{count === 1 ? "" : "s"}; scores are compared with
         grade {grade} writers (3 = on track).
       </p>
     </div>

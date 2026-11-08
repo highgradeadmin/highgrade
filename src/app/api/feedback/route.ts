@@ -1,8 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
-import { billingEnabled, planStatus } from "@/lib/billing";
+import { billingEnabled, freeTries, planStatus } from "@/lib/billing";
 import { FeedbackRequestSchema, FeedbackSchema, MAX_TRIES, type Feedback } from "@/lib/feedback";
+import { findWord } from "@/lib/practice";
+import { estimateCost, type ModelUsage } from "@/lib/pricing";
 import { createClient } from "@/lib/supabase/server";
+import { familyUsage, limitMessage } from "@/lib/usage";
 import { TRAITS } from "@/lib/traits";
 
 const client = new Anthropic();
@@ -26,6 +29,10 @@ Showing a better version (sentence_makeovers and improved_version):
 - Write at the level of a strong student in their grade, not an adult. Use words they would know.
 - improved_version must fix the problems named in next_steps and stay close to the original length (at most about a third longer).
 - If the writing does not match the task, keep their ideas and show how to connect them to the task.
+
+Practice (the student tries before seeing your answers):
+- Each sentence makeover has a hint: a nudge such as "Say what you could hear." that helps them fix it themselves. Never put the answer in the hint.
+- word_swaps: pick 1-2 plain or overused words (like nice, good, fun, went, said, things, very, a lot) and give 3 stronger words that fit in exactly the same spot and keep the meaning, so the sentence still reads correctly after the swap. Use words a strong student in their grade knows. Take them from different sentences than the first makeover. If the word choice is already strong, return an empty list.
 
 Scoring:
 - Calibrate to the student's grade, not adult writing. 3 = on track for the grade, 4 = strong, 5 = exceptional for the grade, 1-2 = needs significant work.
@@ -77,23 +84,40 @@ export async function POST(request: Request) {
     return Response.json({ error: "Choose who's writing first." }, { status: 403 });
   }
 
-  // ── Family plan (Stripe). Admins are exempt so the site can always be tested. ──
+  // ── Family plan (Stripe), or one of the family's free tries. Admins are exempt. ──
+  let freeLeft: number | null = null; // set when this request uses a free try
+  const { data: isAdminData } = await supabase.rpc("is_admin");
+  const isAdmin = isAdminData === true;
   if (billingEnabled()) {
-    const { data: isAdmin } = await supabase.rpc("is_admin");
-    if (isAdmin !== true) {
+    if (!isAdmin) {
       let active = false;
       try {
         active = (await planStatus(supabase, userId)).active;
+        if (!active) freeLeft = (await freeTries(supabase)).left;
       } catch (err) {
         console.error("Plan check failed", err instanceof Error ? err.message : err);
         return Response.json({ error: "Couldn't check your family's plan. Please try again in a minute." }, { status: 502 });
       }
-      if (!active) {
+      if (!active && (freeLeft ?? 0) <= 0) {
         return Response.json(
-          { error: "Coach feedback needs a family plan. Ask a parent to start the free trial in the parent area.", code: "no_plan" },
+          {
+            error: "You've used all your free tries. Ask a parent to start the family plan in the parent area.",
+            code: "no_plan",
+          },
           { status: 402 },
         );
       }
+    }
+  }
+
+  // ── Fair use per family: requests today and tokens this month (admins exempt) ──
+  if (!isAdmin) {
+    try {
+      const message = limitMessage(await familyUsage(supabase, userId));
+      if (message) return Response.json({ error: message, code: "family_limit" }, { status: 429 });
+    } catch (err) {
+      // Never block children because of our own logging problem.
+      console.error("Family limit check failed", err instanceof Error ? err.message : err);
     }
   }
 
@@ -189,7 +213,7 @@ export async function POST(request: Request) {
     });
 
     // Record token usage for the admin dashboard (never blocks the student's feedback).
-    await logUsage(supabase, userId, child.id, work.id, response.model, response.usage);
+    const usageRows = await logUsage(supabase, userId, child.id, work.id, response.model, response.usage);
 
     if (response.stop_reason === "refusal" || !response.parsed_output) {
       return Response.json(
@@ -198,7 +222,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const feedback = normalize(response.parsed_output);
+    const feedback = normalize(response.parsed_output, req.text);
     const { data: draft, error: draftError } = await supabase
       .from("drafts")
       .insert({ work_id: work.id, child_id: child.id, parent_id: userId, text: req.text, feedback })
@@ -206,7 +230,22 @@ export async function POST(request: Request) {
       .single();
     if (draftError) return dbError(draftError);
 
-    return Response.json({ feedback, at: draft.created_at });
+    // Count the free try only once the child actually got feedback.
+    if (freeLeft !== null) {
+      const byModel: Record<string, ModelUsage> = {};
+      for (const r of usageRows) {
+        const u = (byModel[r.model] ??= { input: 0, output: 0, cache_read: 0, cache_write: 0 });
+        u.input += r.input_tokens;
+        u.output += r.output_tokens;
+        u.cache_read += r.cache_read_tokens;
+        u.cache_write += r.cache_write_tokens;
+      }
+      const { error: freeError } = await supabase.rpc("record_free_try", { p_cost: estimateCost(byModel) });
+      if (freeError) console.error("Free try not recorded", freeError.message);
+      freeLeft = Math.max(0, freeLeft - 1);
+    }
+
+    return Response.json({ feedback, at: draft.created_at, freeTriesLeft: freeLeft });
   } catch (err) {
     if (err instanceof Anthropic.RateLimitError) {
       return Response.json(
@@ -262,6 +301,7 @@ async function logUsage(
     .from("ai_usage")
     .insert(rows.map((r) => ({ ...r, parent_id: parentId, child_id: childId, work_id: workId })));
   if (error) console.error("Usage logging failed", error.message);
+  return rows;
 }
 
 function dbError(error: { message: string }) {
@@ -270,7 +310,7 @@ function dbError(error: { message: string }) {
 }
 
 /** Clamp scores and guarantee one entry per trait in a stable order. */
-function normalize(fb: Feedback): Feedback {
+function normalize(fb: Feedback, text: string): Feedback {
   const traits = TRAITS.map((t) => {
     const found = fb.traits.find((x) => x.trait === t.id);
     return {
@@ -285,6 +325,17 @@ function normalize(fb: Feedback): Feedback {
     next_steps: fb.next_steps.slice(0, 2),
     strengths: fb.strengths.slice(0, 2),
     sentence_makeovers: fb.sentence_makeovers.slice(0, 3),
+    // Only swaps that can really be made in the student's text, with distinct new words.
+    word_swaps: (fb.word_swaps ?? [])
+      .filter((w) => w.sentence && text.includes(w.sentence) && findWord(w.sentence, w.word))
+      .map((w) => ({
+        ...w,
+        options: [...new Set(w.options.map((o) => o.trim()))]
+          .filter((o) => o && o.toLowerCase() !== w.word.trim().toLowerCase())
+          .slice(0, 3),
+      }))
+      .filter((w) => w.options.length >= 2)
+      .slice(0, 2),
   };
 }
 

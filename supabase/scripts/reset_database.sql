@@ -8,7 +8,7 @@ delete from auth.users;
 
 drop table if exists
   public.ai_usage, public.drafts, public.works, public.children, public.parents,
-  public.profiles, public.admins
+  public.profiles, public.admins, public.free_tries
   cascade;
 
 drop function if exists
@@ -20,5 +20,8 @@ drop function if exists
   public.add_child(text, text, int, int), public.update_child(text, uuid, text, int),
   public.delete_child(text, uuid), public.owns_child(uuid),
   public.update_child(text, uuid, text, int, text), public.advance_child_level(uuid),
-  public.set_child_avatar(uuid, text, text), public.set_child_voice_typing(text, uuid, boolean)
+  public.set_child_avatar(uuid, text, text), public.set_child_voice_typing(text, uuid, boolean),
+  public.set_stripe_customer(text), public.draft_overall(jsonb), public.admin_child_progress(uuid),
+  public.delete_my_account(text), public.my_email_hash(), public.free_tries_status(),
+  public.record_free_try(numeric)
   cascade;
