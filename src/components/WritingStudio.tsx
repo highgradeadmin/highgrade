@@ -83,8 +83,9 @@ export function WritingStudio({ task }: { task: StudioTask }) {
   const voice = profile?.voiceTyping ?? false;
   const [spokeInDraft, setSpokeInDraft] = useState(false);
   const draftRef = useRef<HTMLTextAreaElement>(null);
+  const stepsRef = useRef<HTMLElement>(null);
   const dictateAtRef = useRef<number | null>(null);
-  const [draftPending, setDraftPending] = useState("");
+  const [draftPending, setDraftPending] = useState<{ at: number; text: string } | null>(null);
   const [linePending, setLinePending] = useState<{ line: number; text: string } | null>(null);
   const fieldId = useId();
   const [practiceState, setPracticeState] = useState<PracticeState>(emptyPractice(""));
@@ -134,13 +135,12 @@ export function WritingStudio({ task }: { task: StudioTask }) {
   /** Words still being recognised appear in the draft right away; they're saved once the phrase is final. */
   function previewIntoDraft(pending: string | null) {
     if (pending === null) dictateAtRef.current = null;
-    else if (pending) dictationPoint(current().text);
-    setDraftPending(pending ?? "");
+    setDraftPending(pending ? { at: dictationPoint(current().text), text: pending } : null);
   }
 
-  const pendingAt = draftPending ? Math.min(dictateAtRef.current ?? work.text.length, work.text.length) : 0;
+  const pendingAt = draftPending ? Math.min(draftPending.at, work.text.length) : 0;
   const draftShown = draftPending
-    ? joinSpoken(work.text.slice(0, pendingAt), draftPending, work.text.slice(pendingAt)).text
+    ? joinSpoken(work.text.slice(0, pendingAt), draftPending.text, work.text.slice(pendingAt)).text
     : work.text;
 
   const update = (patch: Partial<Work>) => saveWork({ ...work, ...patch });
@@ -211,13 +211,19 @@ export function WritingStudio({ task }: { task: StudioTask }) {
       } else if (!force && !skippedPlan && !triesUsed) {
         setPlanNudge(true);
         setStep("Plan");
-        if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+        showSteps();
         return;
       }
     }
     setPlanNudge(false);
     setStep(next);
-    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+    showSteps();
+  }
+
+  /** Brings the step tabs back into view only if the student has scrolled past them (no jump to the page top). */
+  function showSteps() {
+    const nav = stepsRef.current;
+    if (nav && nav.getBoundingClientRect().top < 0) nav.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function getFeedback() {
@@ -320,7 +326,11 @@ export function WritingStudio({ task }: { task: StudioTask }) {
         </p>
       </div>
 
-      <nav className="flex gap-1 overflow-x-auto rounded-full bg-indigo-100/70 p-1" aria-label="Writing steps">
+      <nav
+        ref={stepsRef}
+        className="flex scroll-mt-3 gap-1 overflow-x-auto rounded-full bg-indigo-100/70 p-1"
+        aria-label="Writing steps"
+      >
         {STEPS.map((s, i) => (
           <button
             key={s}
