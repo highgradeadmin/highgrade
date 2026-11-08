@@ -337,6 +337,7 @@ function TryItFirst({
 }) {
   const [missing, setMissing] = useState(false);
   const hint = makeover.hint || "Make this sentence stronger. Add a detail.";
+  const [pending, setPending] = useState(""); // spoken words still being recognised
   const attempt = practice.attempt;
   const tried = countWords(attempt) >= 3 && attempt.trim() !== makeover.before.trim();
 
@@ -362,7 +363,11 @@ function TryItFirst({
           <div className="mt-3 flex items-center justify-between gap-2">
             <span className="text-sm font-semibold text-slate-700">Your better sentence</span>
             {voice && (
-              <SpeechButton size="sm" onText={(t) => onPractice({ attempt: joinSpoken(practice.attempt, t).text })} />
+              <SpeechButton
+                size="sm"
+                onText={(t) => onPractice({ attempt: joinSpoken(practice.attempt, t).text })}
+                onInterim={(p) => setPending(p ?? "")}
+              />
             )}
           </div>
           <textarea
@@ -370,8 +375,9 @@ function TryItFirst({
             className="mt-1 w-full rounded-xl border-2 border-slate-200 bg-white p-2.5 focus:border-indigo-500 focus:outline-none"
             rows={2}
             placeholder="Write your new sentence here…"
-            value={attempt}
+            value={pending ? joinSpoken(attempt, pending).text : attempt}
             onChange={(e) => onPractice({ attempt: e.target.value })}
+            readOnly={Boolean(pending)}
           />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
             <button

@@ -11,8 +11,8 @@ const stripe = new Stripe(key);
 console.log(`Stripe ${key.startsWith("sk_live_") ? "LIVE" : "test"} mode`);
 
 const PRICES = [
-  { lookup_key: "family_monthly", unit_amount: 799, interval: "month", nickname: "Family plan — monthly" },
-  { lookup_key: "family_yearly", unit_amount: 6900, interval: "year", nickname: "Family plan — yearly" },
+  { lookup_key: "family_monthly", unit_amount: 499, interval: "month", nickname: "Family plan — monthly" },
+  { lookup_key: "family_yearly", unit_amount: 4299, interval: "year", nickname: "Family plan — yearly" },
 ];
 
 const existing = await stripe.prices.list({ lookup_keys: PRICES.map((p) => p.lookup_key), expand: ["data.product"] });

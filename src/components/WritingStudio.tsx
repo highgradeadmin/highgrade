@@ -83,6 +83,9 @@ export function WritingStudio({ task }: { task: StudioTask }) {
   const voice = profile?.voiceTyping ?? false;
   const [spokeInDraft, setSpokeInDraft] = useState(false);
   const draftRef = useRef<HTMLTextAreaElement>(null);
+  const dictateAtRef = useRef<number | null>(null);
+  const [draftPending, setDraftPending] = useState("");
+  const [linePending, setLinePending] = useState<{ line: number; text: string } | null>(null);
   const fieldId = useId();
   const [practiceState, setPracticeState] = useState<PracticeState>(emptyPractice(""));
   // Free coach tries left for families without a plan (null = has a plan, admin, or billing off).
@@ -109,15 +112,36 @@ export function WritingStudio({ task }: { task: StudioTask }) {
     saveWork({ ...w, outline });
   }
 
+  /** Where spoken words go in the draft: the cursor when dictation starts, then just after each phrase. */
+  function dictationPoint(text: string) {
+    if (dictateAtRef.current === null) {
+      const el = draftRef.current;
+      dictateAtRef.current = el ? (el.selectionStart ?? text.length) : text.length;
+    }
+    return Math.min(dictateAtRef.current, text.length);
+  }
+
   function speakIntoDraft(spoken: string) {
     const w = current();
-    const el = draftRef.current;
-    const at = el ? Math.min(el.selectionStart ?? w.text.length, w.text.length) : w.text.length;
+    const at = dictationPoint(w.text);
     const { text, caret } = joinSpoken(w.text.slice(0, at), spoken, w.text.slice(at));
+    dictateAtRef.current = caret;
     saveWork({ ...w, text });
     setSpokeInDraft(true);
     requestAnimationFrame(() => draftRef.current?.setSelectionRange(caret, caret));
   }
+
+  /** Words still being recognised appear in the draft right away; they're saved once the phrase is final. */
+  function previewIntoDraft(pending: string | null) {
+    if (pending === null) dictateAtRef.current = null;
+    else if (pending) dictationPoint(current().text);
+    setDraftPending(pending ?? "");
+  }
+
+  const pendingAt = draftPending ? Math.min(dictateAtRef.current ?? work.text.length, work.text.length) : 0;
+  const draftShown = draftPending
+    ? joinSpoken(work.text.slice(0, pendingAt), draftPending, work.text.slice(pendingAt)).text
+    : work.text;
 
   const update = (patch: Partial<Work>) => saveWork({ ...work, ...patch });
 
@@ -390,7 +414,13 @@ export function WritingStudio({ task }: { task: StudioTask }) {
                 <label htmlFor={`${fieldId}-o${i}`} className="font-semibold text-slate-800">
                   {label}
                 </label>
-                {voice && <SpeechButton size="sm" onText={(t) => speakIntoLine(i, t)} />}
+                {voice && (
+                  <SpeechButton
+                    size="sm"
+                    onText={(t) => speakIntoLine(i, t)}
+                    onInterim={(p) => setLinePending(p ? { line: i, text: p } : null)}
+                  />
+                )}
               </div>
               <input
                 id={`${fieldId}-o${i}`}
@@ -400,7 +430,12 @@ export function WritingStudio({ task }: { task: StudioTask }) {
                 }`}
                 placeholder={ideas.length ? "Tap an idea above, or type a few words…" : "A few words…"}
                 onFocus={() => setActiveLine(i)}
-                value={work.outline[i] ?? ""}
+                value={
+                  linePending?.line === i
+                    ? joinSpoken(work.outline[i] ?? "", linePending.text).text
+                    : (work.outline[i] ?? "")
+                }
+                readOnly={linePending?.line === i}
                 onChange={(e) => {
                   const outline = [...work.outline];
                   outline[i] = e.target.value;
@@ -462,7 +497,7 @@ export function WritingStudio({ task }: { task: StudioTask }) {
             )}
             {voice && (
               <div className="flex flex-wrap items-start justify-between gap-2">
-                <SpeechButton label="Speak my writing" onText={speakIntoDraft} />
+                <SpeechButton label="Speak my writing" onText={speakIntoDraft} onInterim={previewIntoDraft} />
                 <span className="text-xs text-slate-500">Tip: say your sentences, then fix any wrong words and add full stops.</span>
               </div>
             )}
@@ -470,9 +505,15 @@ export function WritingStudio({ task }: { task: StudioTask }) {
               ref={draftRef}
               className="h-80 w-full rounded-2xl border-2 border-slate-200 bg-white p-4 text-lg leading-relaxed focus:border-indigo-500 focus:outline-none lg:h-[28rem]"
               placeholder="Write your full piece here…"
-              value={work.text}
-              onChange={(e) => update({ text: e.target.value })}
-              readOnly={loading}
+              value={draftShown}
+              onChange={(e) => {
+                dictateAtRef.current = null;
+                update({ text: e.target.value });
+              }}
+              // Moving the cursor while dictating moves where the next spoken words go.
+              onClick={() => !draftPending && (dictateAtRef.current = null)}
+              onKeyUp={() => !draftPending && (dictateAtRef.current = null)}
+              readOnly={loading || Boolean(draftPending)}
               spellCheck
             />
             <div className="flex flex-wrap items-center justify-between gap-2">

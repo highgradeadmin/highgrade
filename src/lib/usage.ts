@@ -7,9 +7,9 @@ type ServerClient = Awaited<ReturnType<typeof createClient>>;
 /** Feedback requests per family per rolling 24 hours. */
 export const FAMILY_DAILY_LIMIT = Number(process.env.FAMILY_DAILY_LIMIT ?? 20);
 /** Claude tokens (input + output) per family per calendar month (UTC). */
-export const FAMILY_MONTHLY_TOKENS = Number(process.env.FAMILY_MONTHLY_TOKENS ?? 400_000);
+export const FAMILY_MONTHLY_TOKENS = Number(process.env.FAMILY_MONTHLY_TOKENS ?? 3_600_000);
 /** Typical tokens for one feedback, used to turn tokens into "about N feedbacks". */
-export const TYPICAL_TOKENS_PER_FEEDBACK = Number(process.env.TYPICAL_TOKENS_PER_FEEDBACK ?? 7_500);
+export const TYPICAL_TOKENS_PER_FEEDBACK = Number(process.env.TYPICAL_TOKENS_PER_FEEDBACK ?? 7_000);
 
 /** What a plan includes, for the plan card. */
 export function allowance() {

@@ -10,7 +10,7 @@ const PRICES: Record<string, { input: number; output: number; cacheRead: number;
   "claude-haiku-5-5": { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
 };
 
-const DEFAULT_MODEL = "claude-opus-5-5";
+const DEFAULT_MODEL = "claude-haiku-5-5";
 
 export interface ModelUsage {
   input: number;

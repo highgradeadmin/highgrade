@@ -48,11 +48,17 @@ export function joinSpoken(before: string, spoken: string, after = "") {
 
 export function SpeechButton({
   onText,
+  onInterim,
   label = "Speak",
   size = "md",
 }: {
   /** Called with each finished phrase. */
   onText: (spoken: string) => void;
+  /**
+   * Called with the words still being recognised ("" between phrases, null once listening stops),
+   * so the caller can show them in place. Without it, they're shown under the button.
+   */
+  onInterim?: (pending: string | null) => void;
   label?: string;
   size?: "sm" | "md";
 }) {
@@ -62,9 +68,11 @@ export function SpeechButton({
   const [error, setError] = useState<string | null>(null);
   const recRef = useRef<Recognition | null>(null);
   const onTextRef = useRef(onText);
+  const onInterimRef = useRef(onInterim);
 
   useEffect(() => {
     onTextRef.current = onText;
+    onInterimRef.current = onInterim;
   });
   useEffect(() => () => recRef.current?.stop(), []);
 
@@ -85,6 +93,7 @@ export function SpeechButton({
         else pending += r[0].transcript;
       }
       setInterim(pending);
+      onInterimRef.current?.(pending);
     };
     rec.onerror = (e) => {
       if (e.error === "aborted") return;
@@ -100,6 +109,7 @@ export function SpeechButton({
       recRef.current = null;
       setListening(false);
       setInterim("");
+      onInterimRef.current?.(null);
     };
     recRef.current = rec;
     setError(null);
@@ -134,7 +144,7 @@ export function SpeechButton({
       </button>
       {listening && (
         <span className="text-xs text-slate-500" aria-live="polite">
-          {interim ? <i>{interim}…</i> : "Listening… start talking."}
+          {interim && !onInterim ? <i>{interim}…</i> : "Listening… start talking."}
         </span>
       )}
       {error && <span className="text-xs text-rose-700">{error}</span>}
