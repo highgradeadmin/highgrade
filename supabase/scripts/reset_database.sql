@@ -23,5 +23,5 @@ drop function if exists
   public.set_child_avatar(uuid, text, text), public.set_child_voice_typing(text, uuid, boolean),
   public.set_stripe_customer(text), public.draft_overall(jsonb), public.admin_child_progress(uuid),
   public.delete_my_account(text), public.my_email_hash(), public.free_tries_status(),
-  public.record_free_try(numeric)
+  public.record_free_try(numeric), public.free_tries_left(int, numeric), public.admin_free_tries()
   cascade;

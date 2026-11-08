@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Fragment, useEffect, useMemo, useState } from "react";
+import type { AdminPlan } from "@/app/api/admin/plans/route";
 import { AdminProgress } from "@/components/AdminProgress";
 import { estimateCost, formatTokens, formatUsd, type ModelUsage } from "@/lib/pricing";
 import { useAuthStatus, useIsAdmin } from "@/lib/storage";
@@ -34,6 +35,51 @@ interface AdminFamily {
 }
 
 type Sort = "joined" | "tokens" | "active" | "name";
+type PlanFilter = "all" | "paying" | "free" | "used-up";
+
+const LIVE_STATUSES = ["active", "trialing", "past_due"];
+const isPaying = (p: AdminPlan | undefined) => Boolean(p && LIVE_STATUSES.includes(p.status));
+
+/** Plan label for one family: paid (monthly/yearly), past due, cancelling, or free with tries left. */
+function PlanBadge({ plan, free, admin }: { plan?: AdminPlan; free?: { used: number; tries_left: number }; admin: boolean }) {
+  if (admin) return <span className="text-xs text-slate-500">Admin · unlimited</span>;
+  if (plan && isPaying(plan)) {
+    const price = plan.amount !== null ? `$${(plan.amount / 100).toFixed(2)}` : "";
+    const label =
+      plan.status === "past_due" ? "⚠ Past due" : plan.status === "trialing" ? "Trial" : plan.interval === "year" ? "Paid · yearly" : "Paid · monthly";
+    return (
+      <span className="whitespace-nowrap">
+        <span
+          className={`rounded px-1.5 py-0.5 text-xs font-semibold ${
+            plan.status === "past_due" ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-800"
+          }`}
+        >
+          {label}
+        </span>
+        <span className="block text-xs text-slate-500">
+          {price}
+          {plan.cancelAtPeriodEnd && plan.periodEnd
+            ? ` · ends ${fmtDate(plan.periodEnd)}`
+            : plan.periodEnd
+              ? ` · renews ${fmtDate(plan.periodEnd)}`
+              : ""}
+        </span>
+      </span>
+    );
+  }
+  const left = free?.tries_left ?? 15;
+  return (
+    <span className="whitespace-nowrap">
+      <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${left > 0 ? "bg-slate-100 text-slate-700" : "bg-rose-50 text-rose-700"}`}>
+        Free
+      </span>
+      <span className="block text-xs text-slate-500">
+        {left > 0 ? `${left} of 15 tries left` : "free tries used up"}
+        {plan?.status === "canceled" && " · cancelled plan"}
+      </span>
+    </span>
+  );
+}
 
 const DAY = 86_400_000;
 
@@ -82,6 +128,10 @@ export default function AdminPage() {
   const [now, setNow] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
   const [open, setOpen] = useState<Set<string>>(new Set());
+  const [planFilter, setPlanFilter] = useState<PlanFilter>("all");
+  const [plans, setPlans] = useState<Record<string, AdminPlan>>({});
+  const [plansNote, setPlansNote] = useState<string | null>(null);
+  const [free, setFree] = useState<Record<string, { used: number; tries_left: number }>>({});
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -94,6 +144,22 @@ export default function AdminPage() {
         setError(error ? error.message : null);
         setFamilies(error ? null : ((data ?? []) as AdminFamily[]));
       });
+    // Paid status from Stripe (server route) and free tries from the database.
+    fetch("/api/admin/plans", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d: { enabled?: boolean; plans?: Record<string, AdminPlan>; error?: string }) => {
+        if (cancelled) return;
+        setPlans(d.plans ?? {});
+        setPlansNote(d.error ?? (d.enabled === false ? "Billing is off (no Stripe key), so nobody is on a paid plan." : null));
+      })
+      .catch(() => !cancelled && setPlansNote("Couldn't load plans from Stripe."));
+    createClient()
+      .rpc("admin_free_tries")
+      .then(({ data }) => {
+        if (cancelled) return;
+        const rows = (data ?? []) as { parent_id: string; used: number; tries_left: number }[];
+        setFree(Object.fromEntries(rows.map((r) => [r.parent_id, { used: r.used, tries_left: r.tries_left }])));
+      });
     return () => {
       cancelled = true;
     };
@@ -105,10 +171,17 @@ export default function AdminPage() {
     const q = query.trim().toLowerCase();
     const list = all.filter(
       (f) =>
-        !q ||
-        f.email.toLowerCase().includes(q) ||
-        (f.parent_name ?? "").toLowerCase().includes(q) ||
-        f.kids.some((c) => c.name.toLowerCase().includes(q)),
+        (!q ||
+          f.email.toLowerCase().includes(q) ||
+          (f.parent_name ?? "").toLowerCase().includes(q) ||
+          f.kids.some((c) => c.name.toLowerCase().includes(q))) &&
+        (planFilter === "all" ||
+          (planFilter === "paying" && isPaying(plans[f.parent_id])) ||
+          (planFilter === "free" && !f.is_admin && !isPaying(plans[f.parent_id])) ||
+          (planFilter === "used-up" &&
+            !f.is_admin &&
+            !isPaying(plans[f.parent_id]) &&
+            (free[f.parent_id]?.tries_left ?? 15) === 0)),
     );
     const by: Record<Sort, (a: (typeof list)[number], b: (typeof list)[number]) => number> = {
       joined: (a, b) => b.joined_at.localeCompare(a.joined_at),
@@ -117,7 +190,7 @@ export default function AdminPage() {
       name: (a, b) => (a.parent_name ?? "").localeCompare(b.parent_name ?? ""),
     };
     return [...list].sort(by[sort]);
-  }, [all, query, sort]);
+  }, [all, query, sort, planFilter, plans, free]);
 
   if (status === "loading") return <div className="h-40 animate-pulse rounded-xl bg-slate-100" />;
   if (status !== "ready") {
@@ -144,6 +217,8 @@ export default function AdminPage() {
     input: kids.reduce((n, c) => n + c.input, 0),
     output: kids.reduce((n, c) => n + c.output, 0),
     cost: kids.reduce((n, c) => n + c.cost, 0),
+    paying: all.filter((f) => isPaying(plans[f.parent_id])).length,
+    free: all.filter((f) => !f.is_admin && !isPaying(plans[f.parent_id])).length,
   };
 
   const toggle = (id: string) =>
@@ -170,9 +245,12 @@ export default function AdminPage() {
       </header>
 
       {error && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">Couldn&apos;t load families: {error}</p>}
+      {plansNote && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{plansNote}</p>}
 
-      <section className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+      <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Tile label="Families" value={totals.families.toLocaleString()} />
+        <Tile label="Paying families" value={totals.paying.toLocaleString()} />
+        <Tile label="Free families" value={totals.free.toLocaleString()} />
         <Tile label="Children" value={totals.children.toLocaleString()} />
         <Tile label="Children active, 7 days" value={totals.active7.toLocaleString()} />
         <Tile label="Feedback requests" value={totals.requests.toLocaleString()} />
@@ -205,6 +283,19 @@ export default function AdminPage() {
               <option value="name">Parent name</option>
             </select>
           </label>
+          <label className="flex items-center gap-2 text-sm">
+            <span className="text-slate-600">Plan</span>
+            <select
+              className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+              value={planFilter}
+              onChange={(e) => setPlanFilter(e.target.value as PlanFilter)}
+            >
+              <option value="all">All families</option>
+              <option value="paying">Paying</option>
+              <option value="free">Free</option>
+              <option value="used-up">Free tries used up</option>
+            </select>
+          </label>
         </div>
 
         {families === null && !error ? (
@@ -215,6 +306,7 @@ export default function AdminPage() {
               <thead className="bg-slate-50 text-xs text-slate-600">
                 <tr>
                   <th className="px-3 py-2 font-medium">Family / child</th>
+                  <th className="px-3 py-2 font-medium">Plan</th>
                   <th className="px-3 py-2 font-medium">Joined</th>
                   <th className="px-3 py-2 font-medium">Last active</th>
                   <th className="px-3 py-2 text-right font-medium">Pieces</th>
@@ -253,6 +345,9 @@ export default function AdminPage() {
                             </span>
                           </button>
                         </td>
+                        <td className="px-3 py-2">
+                          <PlanBadge plan={plans[f.parent_id]} free={free[f.parent_id]} admin={f.is_admin} />
+                        </td>
                         <td className="whitespace-nowrap px-3 py-2">{fmtDate(f.joined_at)}</td>
                         <td className="whitespace-nowrap px-3 py-2">{ago(f.lastActive, now)}</td>
                         <td className="px-3 py-2 text-right">{f.pieces}</td>
@@ -267,6 +362,7 @@ export default function AdminPage() {
                             <td className="py-1.5 pl-10 pr-3">
                               {c.name} <span className="text-xs text-slate-500">· grade {c.grade}</span>
                             </td>
+                            <td />
                             <td className="whitespace-nowrap px-3 py-1.5">{fmtDate(c.created_at)}</td>
                             <td className="whitespace-nowrap px-3 py-1.5">{ago(c.last_active_at, now)}</td>
                             <td className="px-3 py-1.5 text-right">{c.pieces}</td>
@@ -281,7 +377,7 @@ export default function AdminPage() {
                 })}
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-3 py-8 text-center text-slate-500">
+                    <td colSpan={9} className="px-3 py-8 text-center text-slate-500">
                       No families match.
                     </td>
                   </tr>

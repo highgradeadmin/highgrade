@@ -8,7 +8,7 @@ that gives rubric-based feedback and shows the student their own sentences made 
 
 1. **Claude API key** — create one at https://console.anthropic.com.
 2. **Supabase project** — create a free project at https://supabase.com/dashboard, then:
-   - **SQL Editor → New query**: run each file in `supabase/migrations/` in order (0001 → 0008).
+   - **SQL Editor → New query**: run each file in `supabase/migrations/` in order (0001 → 0009).
    - **Authentication → URL Configuration**: set *Site URL* to `http://localhost:3000`
      (add your production URL later) and add `http://localhost:3000/auth/confirm` to *Redirect URLs*.
    - **Project Settings → API Keys**: copy the project URL and the **publishable** key.
