@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRAIT_IDS } from "./traits";
 
 /** How many rounds of feedback a student gets on one piece of writing. */
-export const MAX_TRIES = 5;
+export const MAX_TRIES = 10;
 
 // Shape of the feedback Claude returns. Shared by the API route and the UI.
 // Every text field is read by a 10-14 year old, so the descriptions ask for short, plain sentences.
@@ -77,6 +77,27 @@ export const FeedbackSchema = z.object({
     .describe(
       "1-2 vocabulary swaps from different sentences than the first sentence makeover. Empty if the word choice is already strong.",
     ),
+  grammar_fixes: z
+    .array(
+      z.object({
+        sentence: z.string().describe("One sentence copied exactly from the student's writing."),
+        mistake: z
+          .string()
+          .describe(
+            "The wrong part copied exactly from that sentence, plus a neighbouring word if needed so it appears only once in the sentence, e.g. 'there hands'.",
+          ),
+        fix: z.string().describe("The corrected words that replace `mistake`, e.g. 'their hands'."),
+        hint: z
+          .string()
+          .describe(
+            "A clue that helps the student find and fix it, without giving the answer. Under 15 words, e.g. 'One word here sounds right but is spelled wrong. Whose hands?'",
+          ),
+        why: z.string().describe("The rule, explained simply. Under 15 words, e.g. 'Their means belonging to them. There is a place.'"),
+      }),
+    )
+    .describe(
+      "1-3 real spelling, grammar (including verb tense), capital-letter or punctuation mistakes for the student to fix, most important first. Empty if there are none.",
+    ),
   improved_version: z
     .string()
     .describe(
@@ -88,6 +109,11 @@ export const FeedbackSchema = z.object({
 });
 
 export type Feedback = z.infer<typeof FeedbackSchema>;
+
+/** The main coach call returns everything except grammar fixes... */
+export const CoachOutputSchema = FeedbackSchema.omit({ grammar_fixes: true });
+/** ...which come from a separate, focused proofreading call (much more reliable at catching mistakes). */
+export const ProofreadSchema = FeedbackSchema.pick({ grammar_fixes: true });
 
 export const FeedbackRequestSchema = z.object({
   childId: z.uuid(),

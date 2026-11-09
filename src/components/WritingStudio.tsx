@@ -89,6 +89,8 @@ export function WritingStudio({ task }: { task: StudioTask }) {
   const [linePending, setLinePending] = useState<{ line: number; text: string } | null>(null);
   const fieldId = useId();
   const [practiceState, setPracticeState] = useState<PracticeState>(emptyPractice(""));
+  // Which round of feedback the student has opened Step 3 for (until then, Step 3 is flagged as new).
+  const [seenImproveAt, setSeenImproveAt] = useState("");
   // Free coach tries left for families without a plan (null = has a plan, admin, or billing off).
   const isAdmin = useIsAdmin();
   const [freeLeft, setFreeLeft] = useState<number | null>(null);
@@ -166,6 +168,7 @@ export function WritingStudio({ task }: { task: StudioTask }) {
   const practiceAt = latest?.at ?? "";
   const practice = practiceState.at === practiceAt ? practiceState : emptyPractice(practiceAt);
   const onPractice = (patch: Partial<PracticeState>) => setPracticeState({ ...practice, ...patch });
+  const improveIsNew = hasImproved && Boolean(practiceAt) && seenImproveAt !== practiceAt;
   const applyToDraft: ApplyToDraft = (change) => {
     const w = current();
     const next = change(w.text);
@@ -216,6 +219,7 @@ export function WritingStudio({ task }: { task: StudioTask }) {
       }
     }
     setPlanNudge(false);
+    if (next === "Improve") setSeenImproveAt(practiceAt);
     setStep(next);
     showSteps();
   }
@@ -341,6 +345,11 @@ export function WritingStudio({ task }: { task: StudioTask }) {
             }`}
           >
             {i + 1}. {s}
+            {s === "Improve" && improveIsNew && step !== "Improve" && (
+              <span className="ml-1.5 rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white">
+                New
+              </span>
+            )}
           </button>
         ))}
       </nav>
@@ -634,9 +643,25 @@ export function WritingStudio({ task }: { task: StudioTask }) {
                 {hasImproved && (
                   <button
                     onClick={() => goTo("Improve")}
-                    className="mt-4 w-full rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900 hover:bg-emerald-100"
+                    className={`mt-5 flex w-full items-center gap-3 rounded-2xl bg-emerald-600 px-4 py-3.5 text-left text-white shadow-md transition hover:bg-emerald-700 ${
+                      improveIsNew ? "ring-4 ring-emerald-200" : ""
+                    }`}
                   >
-                    💪 Practise, then see it made better →
+                    <span className="text-2xl" aria-hidden>
+                      💪
+                    </span>
+                    <span className="flex-1">
+                      <span className="block text-base font-bold">Next: Step 3 · Practise and improve</span>
+                      <span className="block text-sm text-emerald-50">
+                        Fix a few of your sentences, then see the coach&apos;s version of your whole piece.
+                      </span>
+                    </span>
+                    <span
+                      className={`text-2xl font-bold ${improveIsNew ? "animate-pulse motion-reduce:animate-none" : ""}`}
+                      aria-hidden
+                    >
+                      →
+                    </span>
                   </button>
                 )}
               </div>

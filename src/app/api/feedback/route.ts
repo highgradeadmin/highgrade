@@ -1,8 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
-import { FEEDBACK_MODEL, SYSTEM_PROMPT } from "@/lib/coach";
+import { FEEDBACK_MODEL, PROOFREAD_PROMPT, SYSTEM_PROMPT } from "@/lib/coach";
 import { billingEnabled, freeTries, planStatus } from "@/lib/billing";
-import { FeedbackRequestSchema, FeedbackSchema, MAX_TRIES, type Feedback } from "@/lib/feedback";
+import { CoachOutputSchema, FeedbackRequestSchema, MAX_TRIES, ProofreadSchema, type Feedback } from "@/lib/feedback";
 import { findWord } from "@/lib/practice";
 import { estimateCost, type ModelUsage } from "@/lib/pricing";
 import { createClient } from "@/lib/supabase/server";
@@ -10,7 +10,6 @@ import { familyUsage, limitMessage } from "@/lib/usage";
 import { TRAITS } from "@/lib/traits";
 
 const client = new Anthropic();
-const DAILY_LIMIT = Number(process.env.FEEDBACK_DAILY_LIMIT ?? 10);
 
 export async function POST(request: Request) {
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -89,21 +88,6 @@ export async function POST(request: Request) {
     }
   }
 
-  // ── Daily limit per child (protects the API bill) ──
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const { count, error: countError } = await supabase
-    .from("drafts")
-    .select("id", { count: "exact", head: true })
-    .eq("child_id", child.id)
-    .gte("created_at", since);
-  if (countError) return dbError(countError);
-  if ((count ?? 0) >= DAILY_LIMIT) {
-    return Response.json(
-      { error: `You've used all ${DAILY_LIMIT} feedback requests for today. Keep revising and try again tomorrow!` },
-      { status: 429 },
-    );
-  }
-
   // ── Save the current text and find the previous draft ──
   const { data: work, error: workError } = await supabase
     .from("works")
@@ -167,19 +151,45 @@ export async function POST(request: Request) {
     .join("\n\n");
 
   try {
-    const response = await client.beta.messages.parse({
-      model: FEEDBACK_MODEL,
-      max_tokens: 16000,
-      output_config: {
-        effort: "medium",
-        format: betaZodOutputFormat(FeedbackSchema),
-      },
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: userMessage }],
-    });
+    // The coach and the proofreader run at the same time, so proofreading adds no waiting.
+    const proofreadMessage = [
+      `Grade: ${child.grade}`,
+      req.dictated
+        ? "The student spoke some of this using speech-to-text, so the computer did the spelling. Don't report spelling or sound-alike words; only full stops, capital letters, verb tense and sentences run together."
+        : null,
+      `<student_writing>\n${req.text}\n</student_writing>`,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    const [response, proofread] = await Promise.all([
+      client.beta.messages.parse({
+        model: FEEDBACK_MODEL,
+        max_tokens: 16000,
+        output_config: {
+          effort: "medium",
+          format: betaZodOutputFormat(CoachOutputSchema),
+        },
+        system: SYSTEM_PROMPT,
+        messages: [{ role: "user", content: userMessage }],
+      }),
+      client.beta.messages
+        .parse({
+          model: FEEDBACK_MODEL,
+          max_tokens: 4000,
+          output_config: { effort: "low", format: betaZodOutputFormat(ProofreadSchema) },
+          system: PROOFREAD_PROMPT,
+          messages: [{ role: "user", content: proofreadMessage }],
+        })
+        // Feedback still works without grammar practice.
+        .catch((err) => {
+          console.error("Proofread failed", err instanceof Error ? err.message : err);
+          return null;
+        }),
+    ]);
 
     // Record token usage for the admin dashboard (never blocks the student's feedback).
-    const usageRows = await logUsage(supabase, userId, child.id, work.id, response.model, response.usage);
+    // One insert for both calls, so they share a timestamp and count as one request toward the family limit.
+    const usageRows = await logUsage(supabase, userId, child.id, work.id, [response, ...(proofread ? [proofread] : [])]);
 
     if (response.stop_reason === "refusal" || !response.parsed_output) {
       return Response.json(
@@ -188,7 +198,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const feedback = normalize(response.parsed_output, req.text);
+    const feedback = normalize(
+      { ...response.parsed_output, grammar_fixes: proofread?.parsed_output?.grammar_fixes ?? [] },
+      req.text,
+    );
     const { data: draft, error: draftError } = await supabase
       .from("drafts")
       .insert({ work_id: work.id, child_id: child.id, parent_id: userId, text: req.text, feedback })
@@ -230,39 +243,40 @@ export async function POST(request: Request) {
 type ServerClient = Awaited<ReturnType<typeof createClient>>;
 type Usage = Anthropic.Beta.Messages.BetaUsage;
 
-/** One row per model that ran (a fallback model can serve part of a request). */
+/** One row per model that ran (a fallback model can serve part of a request), for every call in this request. */
 async function logUsage(
   supabase: ServerClient,
   parentId: string,
   childId: string,
   workId: string,
-  model: string,
-  usage: Usage,
+  calls: { model: string; usage: Usage }[],
 ) {
-  const perModel = (usage.iterations ?? []).flatMap((it) =>
-    it.type === "message" || it.type === "fallback_message"
-      ? [
+  const rows = calls.flatMap(({ model, usage }) => {
+    const perModel = (usage.iterations ?? []).flatMap((it) =>
+      it.type === "message" || it.type === "fallback_message"
+        ? [
+            {
+              model: it.model ?? model,
+              input_tokens: it.input_tokens,
+              output_tokens: it.output_tokens,
+              cache_read_tokens: it.cache_read_input_tokens ?? 0,
+              cache_write_tokens: it.cache_creation_input_tokens ?? 0,
+            },
+          ]
+        : [],
+    );
+    return perModel.length
+      ? perModel
+      : [
           {
-            model: it.model ?? model,
-            input_tokens: it.input_tokens,
-            output_tokens: it.output_tokens,
-            cache_read_tokens: it.cache_read_input_tokens ?? 0,
-            cache_write_tokens: it.cache_creation_input_tokens ?? 0,
+            model,
+            input_tokens: usage.input_tokens,
+            output_tokens: usage.output_tokens,
+            cache_read_tokens: usage.cache_read_input_tokens ?? 0,
+            cache_write_tokens: usage.cache_creation_input_tokens ?? 0,
           },
-        ]
-      : [],
-  );
-  const rows = perModel.length
-    ? perModel
-    : [
-        {
-          model,
-          input_tokens: usage.input_tokens,
-          output_tokens: usage.output_tokens,
-          cache_read_tokens: usage.cache_read_input_tokens ?? 0,
-          cache_write_tokens: usage.cache_creation_input_tokens ?? 0,
-        },
-      ];
+        ];
+  });
   const { error } = await supabase
     .from("ai_usage")
     .insert(rows.map((r) => ({ ...r, parent_id: parentId, child_id: childId, work_id: workId })));
@@ -285,15 +299,45 @@ function normalize(fb: Feedback, text: string): Feedback {
       comment: found?.comment ?? "",
     };
   });
+  // Only fixes that can really be made: the mistake appears once in a sentence that's in the text.
+  let grammar_fixes = (fb.grammar_fixes ?? [])
+    .filter(
+      (g) =>
+        g.sentence &&
+        g.mistake &&
+        g.fix.trim() &&
+        g.mistake.trim() !== g.fix.trim() &&
+        text.includes(g.sentence) &&
+        g.sentence.indexOf(g.mistake) !== -1 &&
+        g.sentence.indexOf(g.mistake) === g.sentence.lastIndexOf(g.mistake),
+    )
+    .filter((g, i, all) => all.findIndex((x) => x.sentence === g.sentence) === i)
+    .slice(0, 3);
+  let fixedSentences = new Set(grammar_fixes.map((g) => g.sentence));
+  // The student rewrites the first makeover's sentence, so it can't also be a grammar fix.
+  // Put a different makeover first if there is one; otherwise drop that grammar fix.
+  let makeovers = fb.sentence_makeovers.slice(0, 3);
+  if (makeovers[0] && fixedSentences.has(makeovers[0].before)) {
+    const other = makeovers.findIndex((m) => !fixedSentences.has(m.before));
+    if (other > 0) makeovers = [makeovers[other], ...makeovers.filter((_, i) => i !== other)];
+    else {
+      grammar_fixes = grammar_fixes.filter((g) => g.sentence !== makeovers[0].before);
+      fixedSentences = new Set(grammar_fixes.map((g) => g.sentence));
+    }
+  }
   return {
     ...fb,
     traits,
+    grammar_fixes,
     next_steps: fb.next_steps.slice(0, 2),
     strengths: fb.strengths.slice(0, 2),
-    sentence_makeovers: fb.sentence_makeovers.slice(0, 3),
+    sentence_makeovers: makeovers,
     // Only swaps that can really be made in the student's text, with distinct new words.
     word_swaps: (fb.word_swaps ?? [])
-      .filter((w) => w.sentence && text.includes(w.sentence) && findWord(w.sentence, w.word))
+      .filter(
+        (w) =>
+          w.sentence && !fixedSentences.has(w.sentence) && text.includes(w.sentence) && findWord(w.sentence, w.word),
+      )
       .map((w) => ({
         ...w,
         options: [...new Set(w.options.map((o) => o.trim()))]

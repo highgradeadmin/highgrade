@@ -19,6 +19,25 @@ export function swapWord(sentence: string, word: string, choice: string) {
   return sentence.slice(0, found.index) + next + sentence.slice(found.index + found.text.length);
 }
 
+const squash = (s: string) => s.replace(/\s+/g, " ").trim();
+
+/** `text` contains `part` as whole words, matching case (so "i" and "I" differ). */
+const hasExact = (text: string, part: string) => {
+  const before = /^[A-Za-z0-9']/.test(part) ? "(?<![A-Za-z0-9'])" : "";
+  const after = /[A-Za-z0-9']$/.test(part) ? "(?![A-Za-z0-9'])" : "";
+  return new RegExp(`${before}${escape(part)}${after}`).test(text);
+};
+
+/** True if the student's version of the sentence makes the fix and no longer has the mistake. */
+export function isFixed(attempt: string, mistake: string, fix: string) {
+  const a = squash(attempt);
+  const m = squash(mistake);
+  const f = squash(fix);
+  if (!f || !hasExact(a, f)) return false;
+  // When the fix contains the mistake (e.g. adding a full stop), finding the fix is enough.
+  return hasExact(f, m) || !hasExact(a, m);
+}
+
 /** `text` with the first `from` replaced by `to`, or null if `from` isn't in it any more. */
 export function replaceOnce(text: string, from: string, to: string) {
   const i = from ? text.indexOf(from) : -1;

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { GradeSelect } from "@/components/GradePicker";
-import type { Feedback } from "@/lib/feedback";
+import { MAX_TRIES, type Feedback } from "@/lib/feedback";
 import { LEVELS, levelLabel } from "@/lib/lessons";
 import { metricValue } from "@/lib/performance";
 import { PLAN_DISPLAY, YEARLY_SAVING } from "@/lib/plans";
@@ -902,7 +902,7 @@ function UsageCard({ kids }: { kids: Child[] }) {
       )}
       <p className="mt-3 text-xs text-slate-500">
         Tokens are how the AI coach&apos;s work is measured: longer writing and longer feedback use more. Each child
-        can also get up to 5 tries per piece of writing.
+        can also get up to {MAX_TRIES} tries per piece of writing.
       </p>
     </section>
   );

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Feedback } from "@/lib/feedback";
-import { findWord, replaceOnce, swapWord } from "@/lib/practice";
+import { findWord, isFixed, replaceOnce, swapWord } from "@/lib/practice";
 import { ReadAloud } from "./ReadAloud";
 import { joinSpoken, SpeechButton } from "./SpeechButton";
 
@@ -76,6 +76,8 @@ export interface PracticeState {
   /** Which feedback (draft time) this practice belongs to. */
   at: string;
   swaps: Record<number, { choice: string; sentence: string }>;
+  /** Grammar fixes: what the student typed, and whether they fixed it or asked to be shown. */
+  grammar: Record<number, { attempt: string; status: "trying" | "fixed" | "shown"; wrong?: boolean }>;
   attempt: string;
   revealed: boolean;
   usedAttempt: boolean;
@@ -85,6 +87,7 @@ export interface PracticeState {
 export const emptyPractice = (at: string): PracticeState => ({
   at,
   swaps: {},
+  grammar: {},
   attempt: "",
   revealed: false,
   usedAttempt: false,
@@ -114,8 +117,10 @@ export function ImprovedVersion({
 }) {
   const makeovers = feedback.sentence_makeovers ?? [];
   const swaps = feedback.word_swaps ?? [];
+  const fixes = feedback.grammar_fixes ?? [];
   const improved = feedback.improved_version;
   const [tryFirst, ...moreMakeovers] = makeovers;
+  const grammar = practice.grammar ?? {};
 
   if (!improved && makeovers.length === 0) {
     return (
@@ -125,9 +130,12 @@ export function ImprovedVersion({
     );
   }
 
-  const hasPractice = swaps.length > 0 || Boolean(tryFirst);
+  const hasPractice = fixes.length > 0 || swaps.length > 0 || Boolean(tryFirst);
   const practiceDone =
-    practice.skipped || (swaps.every((_, i) => practice.swaps[i]) && (!tryFirst || practice.revealed));
+    practice.skipped ||
+    (fixes.every((_, i) => grammar[i] && grammar[i].status !== "trying") &&
+      swaps.every((_, i) => practice.swaps[i]) &&
+      (!tryFirst || practice.revealed));
   const unlocked = !hasPractice || practiceDone;
 
   return (
@@ -146,6 +154,15 @@ export function ImprovedVersion({
               </button>
             )}
           </div>
+          {fixes.map((g, i) => (
+            <GrammarFix
+              key={`g${i}`}
+              fix={g}
+              state={grammar[i]}
+              applyToDraft={applyToDraft}
+              onChange={(s) => onPractice({ grammar: { ...grammar, [i]: s } })}
+            />
+          ))}
           {swaps.map((s, i) => (
             <WordSwap
               key={i}
@@ -316,6 +333,97 @@ function WordSwap({
       {missing && (
         <p className="mt-2 text-sm text-rose-700">
           You&apos;ve changed that sentence already. Make the swap in your draft yourself if you like it.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** "Find and fix the mistake": the student edits their own sentence, then checks it. */
+function GrammarFix({
+  fix,
+  state,
+  applyToDraft,
+  onChange,
+}: {
+  fix: Feedback["grammar_fixes"][number];
+  state?: PracticeState["grammar"][number];
+  applyToDraft: ApplyToDraft;
+  onChange: (s: PracticeState["grammar"][number]) => void;
+}) {
+  const [missing, setMissing] = useState(false);
+  const attempt = state?.attempt ?? fix.sentence;
+  const status = state?.status ?? "trying";
+  const corrected = replaceOnce(fix.sentence, fix.mistake, fix.fix) ?? fix.sentence;
+
+  function put(sentence: string, next: "fixed" | "shown") {
+    const ok = applyToDraft((t) => replaceOnce(t, fix.sentence, sentence));
+    setMissing(!ok);
+    onChange({ attempt, status: next });
+  }
+
+  function check() {
+    if (isFixed(attempt, fix.mistake, fix.fix)) put(attempt.trim(), "fixed");
+    else onChange({ attempt, status: "trying", wrong: true });
+  }
+
+  return (
+    <div className="rounded-3xl border border-rose-200 bg-rose-50/50 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <p className="font-semibold text-slate-900">{status === "trying" ? "🔍 " : "✓ "}Find and fix the mistake</p>
+        <ReadAloud text={`${fix.sentence} Tip: ${fix.hint}`} label="Hear it" />
+      </div>
+      <p className="mt-2 text-slate-700">{fix.sentence}</p>
+      <p className="mt-2 text-sm font-medium text-rose-900">💡 {fix.hint}</p>
+
+      {status === "trying" ? (
+        <>
+          <textarea
+            aria-label="Your fixed sentence"
+            className="mt-3 w-full rounded-xl border-2 border-slate-200 bg-white p-2.5 focus:border-rose-400 focus:outline-none"
+            rows={2}
+            value={attempt}
+            onChange={(e) => onChange({ attempt: e.target.value, status: "trying" })}
+          />
+          {state?.wrong && (
+            <p className="mt-1 text-sm text-rose-700">Not quite yet. Read it again slowly, then try once more.</p>
+          )}
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => put(corrected, "shown")}
+              className="text-sm text-slate-500 underline hover:text-slate-700"
+            >
+              I&apos;m stuck, show me
+            </button>
+            <button
+              type="button"
+              disabled={attempt.trim() === fix.sentence.trim()}
+              onClick={check}
+              className="rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Check my fix
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="mt-3 rounded-2xl border border-emerald-200 bg-white p-3">
+          <p className="text-sm font-semibold text-emerald-800">
+            {status === "fixed" ? "🎉 You fixed it!" : "Here's the fix:"}
+          </p>
+          <p className="mt-1 text-slate-900">{status === "fixed" ? attempt : corrected}</p>
+          {/* Shown separately because the word highlight ignores capitals and punctuation. */}
+          <p className="mt-2 text-sm">
+            <s className="text-rose-700">{fix.mistake}</s> →{" "}
+            <b className="rounded bg-emerald-100 px-1 text-emerald-950">{fix.fix}</b>
+          </p>
+          <p className="mt-1 text-sm text-slate-600">💡 {fix.why}</p>
+          {!missing && <p className="mt-1 text-sm text-emerald-800">✓ Fixed in your draft.</p>}
+        </div>
+      )}
+      {missing && (
+        <p className="mt-2 text-sm text-rose-700">
+          That sentence has changed in your draft. Make the fix there yourself.
         </p>
       )}
     </div>
