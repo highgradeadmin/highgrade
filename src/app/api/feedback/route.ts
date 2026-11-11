@@ -3,6 +3,7 @@ import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { FEEDBACK_MODEL, PROOFREAD_PROMPT, SYSTEM_PROMPT } from "@/lib/coach";
 import { billingEnabled, freeTries, planStatus } from "@/lib/billing";
 import { CoachOutputSchema, FeedbackRequestSchema, MAX_TRIES, ProofreadSchema, type Feedback } from "@/lib/feedback";
+import { FREE_BETA } from "@/lib/plans";
 import { findWord } from "@/lib/practice";
 import { estimateCost, type ModelUsage } from "@/lib/pricing";
 import { createClient } from "@/lib/supabase/server";
@@ -52,28 +53,30 @@ export async function POST(request: Request) {
   }
 
   // ── Family plan (Stripe), or one of the family's free tries. Admins are exempt. ──
+  // During the free beta, tries are counted even without Stripe, and running out shows a thank-you.
   let freeLeft: number | null = null; // set when this request uses a free try
   const { data: isAdminData } = await supabase.rpc("is_admin");
   const isAdmin = isAdminData === true;
-  if (billingEnabled()) {
-    if (!isAdmin) {
-      let active = false;
-      try {
-        active = (await planStatus(supabase, userId)).active;
-        if (!active) freeLeft = (await freeTries(supabase)).left;
-      } catch (err) {
-        console.error("Plan check failed", err instanceof Error ? err.message : err);
-        return Response.json({ error: "Couldn't check your family's plan. Please try again in a minute." }, { status: 502 });
-      }
-      if (!active && (freeLeft ?? 0) <= 0) {
-        return Response.json(
-          {
-            error: "You've used all your free tries. Ask a parent to start the family plan in the parent area.",
-            code: "no_plan",
-          },
-          { status: 402 },
-        );
-      }
+  if ((billingEnabled() || FREE_BETA) && !isAdmin) {
+    let active = false;
+    let freeLimit = 0;
+    try {
+      if (billingEnabled()) active = (await planStatus(supabase, userId)).active;
+      if (!active) ({ left: freeLeft, limit: freeLimit } = await freeTries(supabase));
+    } catch (err) {
+      console.error("Plan check failed", err instanceof Error ? err.message : err);
+      return Response.json({ error: "Couldn't check your family's tries. Please try again in a minute." }, { status: 502 });
+    }
+    if (!active && (freeLeft ?? 0) <= 0) {
+      return Response.json(
+        {
+          error: FREE_BETA
+            ? `Your family has used all ${freeLimit} free beta tries. Thank you for testing HighGrade!`
+            : "You've used all your free tries. Ask a parent to start the family plan in the parent area.",
+          code: "no_plan",
+        },
+        { status: 402 },
+      );
     }
   }
 
@@ -234,6 +237,13 @@ export async function POST(request: Request) {
     }
     if (err instanceof Anthropic.APIError) {
       console.error("Claude API error", err.status, err.message);
+      // Out of Claude API credit (prepaid balance with auto-reload off): a calm message, not an error.
+      if (/credit balance/i.test(err.message)) {
+        return Response.json(
+          { error: "The writing coach is taking a short break. Keep writing, and please try again later!" },
+          { status: 503 },
+        );
+      }
       return Response.json({ error: "Feedback service error. Please try again." }, { status: 502 });
     }
     throw err;

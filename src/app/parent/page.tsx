@@ -273,11 +273,22 @@ function PlanCard() {
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5">
-      <h2 className="text-lg font-semibold">Family plan</h2>
+      <h2 className="text-lg font-semibold">{plan.beta && !plan.active ? "Free beta" : "Family plan"}</h2>
       {notice && <p className="mt-2 rounded-lg bg-emerald-50 p-2 text-sm text-emerald-900">{notice}</p>}
 
       {plan.error ? (
         <p className="mt-2 text-sm text-red-700">{plan.error} Reload the page to try again.</p>
+      ) : plan.beta && !plan.active ? (
+        <div className="mt-2">
+          {plan.freeTries && (
+            <FreeTriesMeter used={plan.freeTries.used} limit={plan.freeTries.limit} left={plan.freeTries.left} beta />
+          )}
+          <p className="mt-3 text-sm text-slate-700">
+            {plan.freeTries && plan.freeTries.left > 0
+              ? "HighGrade is free while we're in beta. Thank you for trying it with your family!"
+              : "Thank you for testing HighGrade! Your family has used all the free beta tries."}
+          </p>
+        </div>
       ) : plan.active ? (
         <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm text-slate-700">
@@ -790,14 +801,16 @@ function DeleteAccount({ childCount }: { childCount: number }) {
   );
 }
 
-/** "9 of 15 free tries left" with a small meter. */
-function FreeTriesMeter({ used, limit, left }: { used: number; limit: number; left: number }) {
+/** "90 of 100 free tries left" with a small meter. */
+function FreeTriesMeter({ used, limit, left, beta }: { used: number; limit: number; left: number; beta?: boolean }) {
   const pct = limit ? Math.min(100, (Math.min(used, limit) / limit) * 100) : 100;
   return (
     <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
       <p className="text-sm text-slate-800">
         🎁 <b>{left > 0 ? `${left} of ${limit} free tries left` : `All ${limit} free tries used`}</b>
-        <span className="text-slate-600"> · coach feedback, no card needed, shared by your children</span>
+        <span className="text-slate-600">
+          {beta ? " · coach feedback, shared by your children" : " · coach feedback, no card needed, shared by your children"}
+        </span>
       </p>
       <div
         className="mt-2 h-2 rounded-full bg-amber-100"

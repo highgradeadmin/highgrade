@@ -490,6 +490,8 @@ export function updateChild(id: string, name: string, grade: number, level: stri
 
 export interface PlanInfo {
   enabled: boolean;
+  /** Free beta: no plans for sale, just free tries (see FREE_BETA in src/lib/plans.ts). */
+  beta?: boolean;
   active?: boolean;
   status?: string | null;
   interval?: "month" | "year" | null;

@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { MAX_TRIES, type Feedback } from "@/lib/feedback";
 import type { Genre } from "@/lib/lessons";
+import { FREE_BETA } from "@/lib/plans";
 import Link from "next/link";
 import {
   addDraft,
@@ -560,7 +561,9 @@ export function WritingStudio({ task }: { task: StudioTask }) {
               <p className={`text-right text-xs ${freeLeft > 0 ? "text-amber-800" : "text-rose-700"}`}>
                 {freeLeft > 0
                   ? `🎁 ${freeLeft} free ${freeLeft === 1 ? "try" : "tries"} left for your family`
-                  : "🎁 Free tries used up. Ask a parent to start the family plan."}
+                  : FREE_BETA
+                    ? "🎁 Free beta tries used up. Thank you for testing HighGrade!"
+                    : "🎁 Free tries used up. Ask a parent to start the family plan."}
               </p>
             )}
             {loading && <FeedbackLoading />}

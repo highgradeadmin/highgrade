@@ -1,8 +1,10 @@
 import { billingEnabled, ensureCustomer, pinOk, PLAN_PRICES, planStatus, stripe } from "@/lib/billing";
+import { FREE_BETA } from "@/lib/plans";
 import { createClient } from "@/lib/supabase/server";
 
 /** Starts Stripe Checkout for the family plan (no trial: families try it first with free tries). */
 export async function POST(request: Request) {
+  if (FREE_BETA) return Response.json({ error: "HighGrade is free during the beta, so there's nothing to buy yet." }, { status: 403 });
   if (!billingEnabled()) return Response.json({ error: "Billing isn't set up." }, { status: 503 });
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getClaims();

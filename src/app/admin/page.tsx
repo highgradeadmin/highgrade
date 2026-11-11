@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type { AdminPlan } from "@/app/api/admin/plans/route";
 import { AdminProgress } from "@/components/AdminProgress";
+import { FREE_BETA, FREE_TRIES } from "@/lib/plans";
 import { estimateCost, formatTokens, formatUsd, type ModelUsage } from "@/lib/pricing";
 import { useAuthStatus, useIsAdmin } from "@/lib/storage";
 import { createClient } from "@/lib/supabase/client";
@@ -67,14 +68,14 @@ function PlanBadge({ plan, free, admin }: { plan?: AdminPlan; free?: { used: num
       </span>
     );
   }
-  const left = free?.tries_left ?? 15;
+  const left = free?.tries_left ?? FREE_TRIES;
   return (
     <span className="whitespace-nowrap">
       <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${left > 0 ? "bg-slate-100 text-slate-700" : "bg-rose-50 text-rose-700"}`}>
         Free
       </span>
       <span className="block text-xs text-slate-500">
-        {left > 0 ? `${left} of 15 tries left` : "free tries used up"}
+        {left > 0 ? `${left} of ${FREE_TRIES} tries left` : "free tries used up"}
         {plan?.status === "canceled" && " · cancelled plan"}
       </span>
     </span>
@@ -150,7 +151,7 @@ export default function AdminPage() {
       .then((d: { enabled?: boolean; plans?: Record<string, AdminPlan>; error?: string }) => {
         if (cancelled) return;
         setPlans(d.plans ?? {});
-        setPlansNote(d.error ?? (d.enabled === false ? "Billing is off (no Stripe key), so nobody is on a paid plan." : null));
+        setPlansNote(d.error ?? (d.enabled === false ? FREE_BETA ? "Free beta: no paid plans are offered." : "Billing is off (no Stripe key), so nobody is on a paid plan." : null));
       })
       .catch(() => !cancelled && setPlansNote("Couldn't load plans from Stripe."));
     createClient()
@@ -181,7 +182,7 @@ export default function AdminPage() {
           (planFilter === "used-up" &&
             !f.is_admin &&
             !isPaying(plans[f.parent_id]) &&
-            (free[f.parent_id]?.tries_left ?? 15) === 0)),
+            (free[f.parent_id]?.tries_left ?? FREE_TRIES) === 0)),
     );
     const by: Record<Sort, (a: (typeof list)[number], b: (typeof list)[number]) => number> = {
       joined: (a, b) => b.joined_at.localeCompare(a.joined_at),
