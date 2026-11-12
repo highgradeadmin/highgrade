@@ -29,6 +29,14 @@ export default function SignupPage() {
           We sent a confirmation link to <b>{email}</b>. Click it to finish creating your family account,
           then you&apos;ll set a parent PIN and add your children.
         </p>
+        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-slate-700">
+          <p>
+            The email comes from <b>Supabase Auth</b> (<span className="break-all">noreply@mail.app.supabase.io</span>),
+            the service that runs HighGrade&apos;s sign-in, with the subject <b>&ldquo;Confirm your email
+            address&rdquo;</b>.
+          </p>
+          <p className="mt-2">Don&apos;t see it after a few minutes? Check your spam or promotions folder.</p>
+        </div>
       </AuthCard>
     );
   }
