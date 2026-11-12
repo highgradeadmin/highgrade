@@ -48,6 +48,25 @@ export interface StudioTask {
 const STEPS = ["Plan", "Write", "Improve"] as const;
 type Step = (typeof STEPS)[number];
 
+function loadPractice(key: string | null, at: string): PracticeState | null {
+  if (!key || typeof window === "undefined") return null;
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(key) ?? "null") as PracticeState | null;
+    return saved && saved.at === at ? { ...emptyPractice(at), ...saved } : null;
+  } catch {
+    return null;
+  }
+}
+
+function savePractice(key: string | null, state: PracticeState) {
+  if (!key) return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(state));
+  } catch {
+    // Private mode or storage full: practice still works, it just won't survive a reload.
+  }
+}
+
 function countWords(text: string) {
   return text.trim() ? text.trim().split(/\s+/).length : 0;
 }
@@ -73,6 +92,12 @@ export function WritingStudio({ task }: { task: StudioTask }) {
   };
 
   const [step, setStep] = useState<Step>(work.drafts.length || work.text.trim() ? "Write" : "Plan");
+  // Saved work loads after the first render: once it arrives, open on Write if there's a draft already.
+  const [stepFromSaved, setStepFromSaved] = useState(Boolean(stored));
+  if (!stepFromSaved && stored) {
+    setStepFromSaved(true);
+    if (stored.drafts.length || stored.text.trim()) setStep("Write");
+  }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeLine, setActiveLine] = useState<number | null>(null);
@@ -167,8 +192,15 @@ export function WritingStudio({ task }: { task: StudioTask }) {
   const hasImproved = Boolean(latestFeedback?.improved_version || latestFeedback?.sentence_makeovers?.length);
   // Practice starts fresh for each new round of feedback.
   const practiceAt = latest?.at ?? "";
-  const practice = practiceState.at === practiceAt ? practiceState : emptyPractice(practiceAt);
-  const onPractice = (patch: Partial<PracticeState>) => setPracticeState({ ...practice, ...patch });
+  // Practice progress is kept in this browser per child, piece and round of feedback, so a reload doesn't reset it.
+  const practiceKey = profile && practiceAt ? `highgrade:practice:${profile.id}:${task.id}` : null;
+  const practice =
+    practiceState.at === practiceAt ? practiceState : (loadPractice(practiceKey, practiceAt) ?? emptyPractice(practiceAt));
+  const onPractice = (patch: Partial<PracticeState>) => {
+    const next = { ...practice, ...patch };
+    setPracticeState(next);
+    savePractice(practiceKey, next);
+  };
   const improveIsNew = hasImproved && Boolean(practiceAt) && seenImproveAt !== practiceAt;
   const applyToDraft: ApplyToDraft = (change) => {
     const w = current();

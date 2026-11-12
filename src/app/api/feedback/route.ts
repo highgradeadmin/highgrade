@@ -128,7 +128,8 @@ export async function POST(request: Request) {
   const tryNumber = (triesUsed ?? 0) + 1;
   const previousText: string | undefined = previous?.[0]?.text;
   const previousImproved = (previous?.[0]?.feedback as Partial<Feedback> | null)?.improved_version;
-  const copiedCoach = previousImproved ? overlap(req.text, previousImproved) > 0.6 : false;
+  const copiedCoach = previousText && previousImproved ? copiedFromCoach(req.text, previousText, previousImproved) : false;
+  const takenSwaps = previousText ? acceptedSwaps(req.text, previousText, previous?.[0]?.feedback as Partial<Feedback> | null) : [];
 
   const userMessage = [
     `Grade: ${child.grade}`,
@@ -144,6 +145,9 @@ export async function POST(request: Request) {
       : null,
     req.dictated
       ? "The student spoke some of this draft using speech-to-text, so the computer did the spelling. Don't praise or score spelling. For conventions, focus on what the student controls: full stops, capital letters at sentence starts and where sentences begin and end. Ignore odd words that look like speech-recognition mistakes."
+      : null,
+    takenSwaps.length
+      ? `Since last time, the student took these word swaps you suggested: ${takenSwaps.map(([w, c]) => `"${w}" → "${c}"`).join(", ")}. Treat them as the student's own choices and don't ask them to change those words again.`
       : null,
     copiedCoach
       ? "Most of this draft is copied from the improved version you showed last time. Gently remind the student that copying won't help them learn, and ask them to make the changes in their own words. Score it honestly."
@@ -360,13 +364,30 @@ function normalize(fb: Feedback, text: string): Feedback {
 }
 
 /** Share of the student's 3-word sequences that also appear in `source` (0-1). */
-function overlap(text: string, source: string) {
-  const grams = (t: string) => {
-    const w = t.toLowerCase().match(/[a-z0-9']+/g) ?? [];
-    return w.slice(2).map((_, i) => `${w[i]} ${w[i + 1]} ${w[i + 2]}`);
-  };
-  const mine = grams(text);
-  if (mine.length < 10) return 0;
-  const theirs = new Set(grams(source));
-  return mine.filter((g) => theirs.has(g)).length / mine.length;
+const trigrams = (t: string) => {
+  const w = t.toLowerCase().match(/[a-z0-9']+/g) ?? [];
+  return w.slice(2).map((_, i) => `${w[i]} ${w[i + 1]} ${w[i + 2]}`);
+};
+
+/**
+ * True when most of what changed since the last draft was copied from the coach's improved version.
+ * Only the changed parts count: the improved version keeps most of the student's own sentences,
+ * so comparing the whole draft would flag any revision as copied.
+ */
+function copiedFromCoach(text: string, previousText: string, improved: string) {
+  const before = new Set(trigrams(previousText));
+  const added = trigrams(text).filter((g) => !before.has(g));
+  if (added.length < 8) return false;
+  const coach = new Set(trigrams(improved));
+  return added.filter((g) => coach.has(g)).length / added.length > 0.6;
+}
+
+/** Word swaps from the last feedback that the student took: [original word, chosen option]. */
+function acceptedSwaps(text: string, previousText: string, feedback: Partial<Feedback> | null) {
+  const has = (t: string, word: string) =>
+    new RegExp(`\\b${word.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(t.toLowerCase());
+  return (feedback?.word_swaps ?? []).flatMap((s) => {
+    const choice = s.options?.find((o) => has(text, o) && !has(previousText, o));
+    return choice ? [[s.word, choice] as const] : [];
+  });
 }
